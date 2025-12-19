@@ -1,7 +1,7 @@
-# GameHub - Browser Gaming Portal
+# GameNexus - Browser Gaming Portal
 
 ## Overview
-GameHub is a gaming website that hosts multiple browser games. Users can browse a game library and play different games directly in their browser.
+GameNexus is a gaming website that hosts multiple browser games. Users can browse a game library and play different games directly in their browser.
 
 ## Current Features
 - **Game Library Homepage**: Browse all available games with beautiful card UI

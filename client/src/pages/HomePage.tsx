@@ -61,7 +61,7 @@ export default function HomePage() {
     },
     {
       title: "Bloxd.io (Scratch Edition)",
-      description: "Build, mine, and explore in this blocky world adventure!",
+      description: "A knockoff of the real Bloxd.io that was made with ScratchBlocks technology and Turbowarp Packager.",
       icon: <Blocks size={48} />,
       link: "/games/bloxd",
       color: "bg-gradient-to-br from-cyan-500 to-blue-700",
@@ -73,7 +73,7 @@ export default function HomePage() {
       <header className="py-8 px-4">
         <div className="max-w-6xl mx-auto text-center">
           <h1 className="text-5xl font-bold text-white mb-4">
-            Game<span className="text-purple-400">Hub</span>
+            Game<span className="text-purple-400">Nexus</span>
           </h1>
           <p className="text-gray-400 text-lg">Your destination for fun browser games</p>
         </div>
@@ -101,7 +101,7 @@ export default function HomePage() {
 
       <footer className="py-6 border-t border-gray-800">
         <div className="max-w-6xl mx-auto px-4 text-center text-gray-500 text-sm">
-          GameHub - Play, Have Fun, Repeat
+          GameNexus - Play, Have Fun, Repeat
         </div>
       </footer>
     </div>

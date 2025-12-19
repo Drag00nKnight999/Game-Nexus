@@ -15,7 +15,7 @@ export default function NotFound() {
           className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
         >
           <Home size={20} />
-          Back to GameHub
+          Back to GameNexus
         </Link>
       </div>
     </div>
