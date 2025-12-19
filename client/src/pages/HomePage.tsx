@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { Gamepad2, Brain, Box, Blocks } from "lucide-react";
+import { useState } from "react";
+import { Gamepad2, Brain, Box, Blocks, Search, X } from "lucide-react";
 
 interface GameCardProps {
   title: string;
@@ -37,6 +38,8 @@ function GameCard({ title, description, icon, link, color }: GameCardProps) {
 }
 
 export default function HomePage() {
+  const [searchQuery, setSearchQuery] = useState("");
+
   const games = [
     {
       title: "Snake",
@@ -68,6 +71,14 @@ export default function HomePage() {
     },
   ];
 
+  const filteredGames = games.filter((game) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      game.title.toLowerCase().includes(query) ||
+      game.description.toLowerCase().includes(query)
+    );
+  });
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <header className="py-8 px-4">
@@ -81,12 +92,42 @@ export default function HomePage() {
 
       <main className="px-4 pb-12">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-2xl font-semibold text-white mb-6">Featured Games</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {games.map((game) => (
-              <GameCard key={game.title} {...game} />
-            ))}
+          <div className="mb-8">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+              <input
+                type="text"
+                placeholder="Search games..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-12 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              )}
+            </div>
           </div>
+
+          <h2 className="text-2xl font-semibold text-white mb-6">
+            {searchQuery ? `Results for "${searchQuery}"` : "Featured Games"}
+          </h2>
+          
+          {filteredGames.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredGames.map((game) => (
+                <GameCard key={game.title} {...game} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-gray-400 text-lg">No games found matching "{searchQuery}"</p>
+            </div>
+          )}
         </div>
 
         <div className="max-w-6xl mx-auto mt-12">
