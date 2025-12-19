@@ -60,7 +60,7 @@ export default function HomePage() {
       color: "bg-gradient-to-br from-orange-500 to-red-700",
     },
     {
-      title: "Bloxd.io",
+      title: "Bloxd.io (Scratch Edition)",
       description: "Build, mine, and explore in this blocky world adventure!",
       icon: <Blocks size={48} />,
       link: "/games/bloxd",
