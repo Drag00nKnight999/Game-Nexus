@@ -7,6 +7,7 @@ import HomePage from "./pages/HomePage";
 import SnakeGame from "./pages/games/SnakeGame";
 import MemoryGame from "./pages/games/MemoryGame";
 import PlatformerGame from "./pages/games/PlatformerGame";
+import BloxdGame from "./pages/games/BloxdGame";
 import NotFound from "./pages/not-found";
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
             <Route path="/games/snake" element={<SnakeGame />} />
             <Route path="/games/memory" element={<MemoryGame />} />
             <Route path="/games/platformer" element={<PlatformerGame />} />
+            <Route path="/games/bloxd" element={<BloxdGame />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

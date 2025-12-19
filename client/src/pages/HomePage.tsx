@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Gamepad2, Brain, Box } from "lucide-react";
+import { Gamepad2, Brain, Box, Blocks } from "lucide-react";
 
 interface GameCardProps {
   title: string;
@@ -58,6 +58,13 @@ export default function HomePage() {
       icon: <Box size={48} />,
       link: "/games/platformer",
       color: "bg-gradient-to-br from-orange-500 to-red-700",
+    },
+    {
+      title: "Bloxd.io",
+      description: "Build, mine, and explore in this blocky world adventure!",
+      icon: <Blocks size={48} />,
+      link: "/games/bloxd",
+      color: "bg-gradient-to-br from-cyan-500 to-blue-700",
     },
   ];
 
