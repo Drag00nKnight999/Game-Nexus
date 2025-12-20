@@ -72,6 +72,7 @@ export async function registerRoutes(
   ]);
 
   const bannedUsers: Map<string, any> = new Map();
+  const chatMessages: any[] = [];
 
   app.get("/api/admin/games", (req: Request, res: Response) => {
     if (!isAuthenticated(req)) {
@@ -186,6 +187,33 @@ export async function registerRoutes(
 
     game.currentVersion = versionNumber;
     res.json({ game });
+  });
+
+  app.get("/api/chat/messages", (req: Request, res: Response) => {
+    res.json({ messages: chatMessages });
+  });
+
+  app.post("/api/chat/messages", (req: Request, res: Response) => {
+    const { username, text } = req.body;
+
+    if (!username || !text) {
+      return res.status(400).json({ error: "Username and text required" });
+    }
+
+    if (bannedUsers.has(username)) {
+      return res.status(403).json({ error: "User is banned" });
+    }
+
+    const message = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      username,
+      text,
+      timestamp: new Date().toISOString(),
+      flagged: false,
+    };
+
+    chatMessages.push(message);
+    res.json({ message });
   });
 
   return httpServer;

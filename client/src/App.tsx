@@ -10,6 +10,7 @@ import PlatformerGame from "./pages/games/PlatformerGame";
 import BloxdGame from "./pages/games/BloxdGame";
 import AdminLogin from "./pages/AdminLogin";
 import AdminPanel from "./pages/AdminPanel";
+import ChatRoom from "./pages/ChatRoom";
 import NotFound from "./pages/not-found";
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
             <Route path="/games/memory" element={<MemoryGame />} />
             <Route path="/games/platformer" element={<PlatformerGame />} />
             <Route path="/games/bloxd" element={<BloxdGame />} />
+            <Route path="/chat" element={<ChatRoom />} />
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin" element={<AdminPanel />} />
             <Route path="*" element={<NotFound />} />

@@ -91,6 +91,14 @@ export default function HomePage() {
       </header>
 
       <main className="px-4 pb-12">
+        <div className="max-w-6xl mx-auto mb-8">
+          <Link
+            to="/chat"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-br from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white rounded-lg font-medium transition-all duration-300 hover:shadow-lg"
+          >
+            💬 Join Community Chat
+          </Link>
+        </div>
         <div className="max-w-6xl mx-auto">
           <div className="mb-8">
             <div className="relative">
