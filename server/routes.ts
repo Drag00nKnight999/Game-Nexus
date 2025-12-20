@@ -65,10 +65,10 @@ export async function registerRoutes(
   });
 
   const games: Map<string, any> = new Map([
-    ["snake", { id: "snake", title: "Snake", version: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 50 }],
-    ["memory", { id: "memory", title: "Memory Match", version: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 40 }],
-    ["platformer", { id: "platformer", title: "Platformer", version: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 80 }],
-    ["bloxd", { id: "bloxd", title: "Bloxd.io (Scratch Edition)", version: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 1024 * 50 }],
+    ["snake", { id: "snake", title: "Snake", currentVersion: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 50, versions: [{ versionNumber: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 50, isActive: true }] }],
+    ["memory", { id: "memory", title: "Memory Match", currentVersion: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 40, versions: [{ versionNumber: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 40, isActive: true }] }],
+    ["platformer", { id: "platformer", title: "Platformer", currentVersion: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 80, versions: [{ versionNumber: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 80, isActive: true }] }],
+    ["bloxd", { id: "bloxd", title: "Bloxd.io (Scratch Edition)", currentVersion: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 1024 * 50, versions: [{ versionNumber: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 1024 * 50, isActive: true }] }],
   ]);
 
   const bannedUsers: Map<string, any> = new Map();
@@ -138,6 +138,54 @@ export async function registerRoutes(
     } else {
       res.status(404).json({ error: "User not found" });
     }
+  });
+
+  app.post("/api/admin/games/:gameId/version", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const { gameId } = req.params;
+    const { versionNumber } = req.body;
+
+    if (!versionNumber) {
+      return res.status(400).json({ error: "Version number required" });
+    }
+
+    const game = games.get(gameId);
+    if (!game) {
+      return res.status(404).json({ error: "Game not found" });
+    }
+
+    const newVersion = {
+      versionNumber,
+      uploadedAt: new Date().toISOString(),
+      size: Math.floor(Math.random() * 100000000),
+      isActive: false,
+    };
+
+    game.versions.push(newVersion);
+    res.json({ game });
+  });
+
+  app.post("/api/admin/games/:gameId/version/:versionNumber/activate", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const { gameId, versionNumber } = req.params;
+
+    const game = games.get(gameId);
+    if (!game) {
+      return res.status(404).json({ error: "Game not found" });
+    }
+
+    game.versions.forEach((v: any) => {
+      v.isActive = v.versionNumber === versionNumber;
+    });
+
+    game.currentVersion = versionNumber;
+    res.json({ game });
   });
 
   return httpServer;

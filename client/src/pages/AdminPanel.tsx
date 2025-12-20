@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2, Users, AlertCircle } from "lucide-react";
+import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2, Users, AlertCircle, ChevronDown } from "lucide-react";
 
 interface GameStats {
   title: string;
@@ -14,12 +14,20 @@ interface UserStats {
   totalPlays: number;
 }
 
+interface GameVersion {
+  versionNumber: string;
+  uploadedAt: string;
+  size: number;
+  isActive: boolean;
+}
+
 interface GameFile {
   id: string;
   title: string;
-  version: string;
+  currentVersion: string;
   uploadedAt: string;
   size: number;
+  versions: GameVersion[];
 }
 
 interface BannedUser {
@@ -44,6 +52,9 @@ export default function AdminPanel() {
   const [uploading, setUploading] = useState(false);
   const [banUsername, setBanUsername] = useState("");
   const [banReason, setBanReason] = useState("");
+  const [expandedGame, setExpandedGame] = useState<string | null>(null);
+  const [newVersionGame, setNewVersionGame] = useState<string | null>(null);
+  const [newVersionNum, setNewVersionNum] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -152,6 +163,42 @@ export default function AdminPanel() {
     }
   };
 
+  const handleAddVersion = async (gameId: string) => {
+    if (!newVersionNum) return;
+
+    try {
+      const response = await fetch(`/api/admin/games/${gameId}/version`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionNumber: newVersionNum }),
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setGameFiles(gameFiles.map(g => g.id === gameId ? updated.game : g));
+        setNewVersionNum("");
+        setNewVersionGame(null);
+      }
+    } catch (err) {
+      console.error("Failed to add version:", err);
+    }
+  };
+
+  const handleRollbackVersion = async (gameId: string, versionNumber: string) => {
+    if (!confirm(`Rollback to version ${versionNumber}?`)) return;
+
+    try {
+      const response = await fetch(`/api/admin/games/${gameId}/version/${versionNumber}/activate`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setGameFiles(gameFiles.map(g => g.id === gameId ? updated.game : g));
+      }
+    } catch (err) {
+      console.error("Failed to rollback version:", err);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await fetch("/api/admin/logout", { method: "POST" });
@@ -249,39 +296,95 @@ export default function AdminPanel() {
                   <h3 className="text-lg font-semibold text-white mb-4">Game Files</h3>
                   {gameFiles.length > 0 ? (
                     <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-gray-700">
-                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Title</th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Version</th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Size</th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Uploaded</th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {gameFiles.map((game) => (
-                            <tr
-                              key={game.id}
-                              className="border-b border-gray-700 hover:bg-gray-700/50 transition-colors"
-                            >
-                              <td className="px-4 py-3 text-white">{game.title}</td>
-                              <td className="px-4 py-3 text-gray-300">{game.version}</td>
-                              <td className="px-4 py-3 text-gray-300">{(game.size / 1024 / 1024).toFixed(2)}MB</td>
-                              <td className="px-4 py-3 text-gray-300 text-sm">{new Date(game.uploadedAt).toLocaleDateString()}</td>
-                              <td className="px-4 py-3">
+                      <div className="space-y-2">
+                        {gameFiles.map((game) => (
+                          <div key={game.id} className="border border-gray-600 rounded-lg overflow-hidden">
+                            <div className="bg-gray-700 px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-gray-650 transition-colors" onClick={() => setExpandedGame(expandedGame === game.id ? null : game.id)}>
+                              <div className="flex-1">
+                                <h4 className="text-white font-medium">{game.title}</h4>
+                                <p className="text-gray-400 text-sm">Current: v{game.currentVersion} • {(game.size / 1024 / 1024).toFixed(2)}MB</p>
+                              </div>
+                              <div className="flex items-center gap-3">
                                 <button
-                                  onClick={() => handleDeleteGame(game.id)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteGame(game.id);
+                                  }}
                                   className="p-2 hover:bg-red-500/20 text-red-400 rounded transition-colors"
                                   title="Delete game"
                                 >
                                   <Trash2 size={18} />
                                 </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                                <ChevronDown size={20} className={`transition-transform ${expandedGame === game.id ? 'rotate-180' : ''}`} />
+                              </div>
+                            </div>
+                            
+                            {expandedGame === game.id && (
+                              <div className="bg-gray-800 px-4 py-4 space-y-4">
+                                <div>
+                                  <h5 className="text-sm font-medium text-gray-300 mb-2">Version History</h5>
+                                  <div className="space-y-2">
+                                    {game.versions.map((v) => (
+                                      <div key={v.versionNumber} className="flex justify-between items-center bg-gray-700 px-3 py-2 rounded text-sm">
+                                        <div>
+                                          <span className="text-white font-medium">v{v.versionNumber}</span>
+                                          {v.isActive && <span className="ml-2 px-2 py-1 bg-green-600/30 text-green-300 rounded text-xs">Active</span>}
+                                          <p className="text-gray-400 text-xs mt-1">{new Date(v.uploadedAt).toLocaleDateString()}</p>
+                                        </div>
+                                        {!v.isActive && (
+                                          <button
+                                            onClick={() => handleRollbackVersion(game.id, v.versionNumber)}
+                                            className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs transition-colors"
+                                          >
+                                            Activate
+                                          </button>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <h5 className="text-sm font-medium text-gray-300 mb-2">Add New Version</h5>
+                                  {newVersionGame === game.id ? (
+                                    <div className="space-y-2">
+                                      <input
+                                        type="text"
+                                        value={newVersionNum}
+                                        onChange={(e) => setNewVersionNum(e.target.value)}
+                                        placeholder="e.g., 1.0.1"
+                                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 text-sm"
+                                      />
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={() => handleAddVersion(game.id)}
+                                          className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-500 text-white rounded text-sm transition-colors"
+                                        >
+                                          Create Version
+                                        </button>
+                                        <button
+                                          onClick={() => setNewVersionGame(null)}
+                                          className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm transition-colors"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => setNewVersionGame(game.id)}
+                                      className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm flex items-center justify-center gap-2 transition-colors"
+                                    >
+                                      <Upload size={16} />
+                                      Upload New Version
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : (
                     <p className="text-gray-400 text-center py-8">No game files uploaded yet</p>
