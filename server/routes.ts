@@ -71,6 +71,8 @@ export async function registerRoutes(
     ["bloxd", { id: "bloxd", title: "Bloxd.io (Scratch Edition)", version: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 1024 * 50 }],
   ]);
 
+  const bannedUsers: Map<string, any> = new Map();
+
   app.get("/api/admin/games", (req: Request, res: Response) => {
     if (!isAuthenticated(req)) {
       return res.status(401).json({ error: "Not authenticated" });
@@ -90,6 +92,51 @@ export async function registerRoutes(
       res.json({ success: true });
     } else {
       res.status(404).json({ error: "Game not found" });
+    }
+  });
+
+  app.get("/api/admin/banned-users", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    res.json({ bannedUsers: Array.from(bannedUsers.values()) });
+  });
+
+  app.post("/api/admin/ban-user", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const { username, reason } = req.body;
+    if (!username || !reason) {
+      return res.status(400).json({ error: "Username and reason required" });
+    }
+
+    const userId = `user_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const bannedUser = {
+      id: userId,
+      username,
+      reason,
+      bannedAt: new Date().toISOString(),
+      bannedBy: "admin",
+    };
+
+    bannedUsers.set(userId, bannedUser);
+    res.json({ bannedUser });
+  });
+
+  app.post("/api/admin/unban-user/:userId", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const { userId } = req.params;
+    if (bannedUsers.has(userId)) {
+      bannedUsers.delete(userId);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: "User not found" });
     }
   });
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2 } from "lucide-react";
+import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2, Users, AlertCircle } from "lucide-react";
 
 interface GameStats {
   title: string;
@@ -22,6 +22,14 @@ interface GameFile {
   size: number;
 }
 
+interface BannedUser {
+  id: string;
+  username: string;
+  reason: string;
+  bannedAt: string;
+  bannedBy: string;
+}
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState("stats");
   const [stats, setStats] = useState<UserStats>({
@@ -31,14 +39,20 @@ export default function AdminPanel() {
   });
   const [gameStats, setGameStats] = useState<GameStats[]>([]);
   const [gameFiles, setGameFiles] = useState<GameFile[]>([]);
+  const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [banUsername, setBanUsername] = useState("");
+  const [banReason, setBanReason] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchStats();
     if (activeTab === "games") {
       fetchGames();
+    }
+    if (activeTab === "users") {
+      fetchBannedUsers();
     }
   }, [activeTab]);
 
@@ -85,6 +99,56 @@ export default function AdminPanel() {
       }
     } catch (err) {
       console.error("Failed to delete game:", err);
+    }
+  };
+
+  const fetchBannedUsers = async () => {
+    try {
+      const response = await fetch("/api/admin/banned-users");
+      if (response.ok) {
+        const data = await response.json();
+        setBannedUsers(data.bannedUsers || []);
+      } else if (response.status === 401) {
+        navigate("/admin/login");
+      }
+    } catch (err) {
+      console.error("Failed to fetch banned users:", err);
+    }
+  };
+
+  const handleBanUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!banUsername || !banReason) return;
+
+    try {
+      const response = await fetch("/api/admin/ban-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: banUsername, reason: banReason }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setBannedUsers([...bannedUsers, data.bannedUser]);
+        setBanUsername("");
+        setBanReason("");
+      }
+    } catch (err) {
+      console.error("Failed to ban user:", err);
+    }
+  };
+
+  const handleUnbanUser = async (userId: string) => {
+    if (!confirm("Are you sure you want to unban this user?")) return;
+
+    try {
+      const response = await fetch(`/api/admin/unban-user/${userId}`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        setBannedUsers(bannedUsers.filter(u => u.id !== userId));
+      }
+    } catch (err) {
+      console.error("Failed to unban user:", err);
     }
   };
 
@@ -141,6 +205,17 @@ export default function AdminPanel() {
             >
               <Gamepad2 size={20} />
               Manage Games
+            </button>
+            <button
+              onClick={() => setActiveTab("users")}
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
+                activeTab === "users"
+                  ? "border-purple-500 text-purple-400"
+                  : "border-transparent text-gray-400 hover:text-white"
+              }`}
+            >
+              <Users size={20} />
+              Banned Users
             </button>
           </div>
         </div>
@@ -210,6 +285,72 @@ export default function AdminPanel() {
                     </div>
                   ) : (
                     <p className="text-gray-400 text-center py-8">No game files uploaded yet</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "users" && (
+              <div className="space-y-6">
+                <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <AlertCircle size={20} className="text-red-400" />
+                    Ban a User
+                  </h3>
+                  <form onSubmit={handleBanUser} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Username</label>
+                      <input
+                        type="text"
+                        value={banUsername}
+                        onChange={(e) => setBanUsername(e.target.value)}
+                        placeholder="Enter username to ban"
+                        className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Reason</label>
+                      <textarea
+                        value={banReason}
+                        onChange={(e) => setBanReason(e.target.value)}
+                        placeholder="Reason for ban (e.g., hacking, cheating)"
+                        className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
+                        rows={3}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition-colors"
+                    >
+                      Ban User
+                    </button>
+                  </form>
+                </div>
+
+                <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                  <h3 className="text-lg font-semibold text-white mb-4">Banned Users ({bannedUsers.length})</h3>
+                  {bannedUsers.length > 0 ? (
+                    <div className="space-y-3">
+                      {bannedUsers.map((user) => (
+                        <div key={user.id} className="bg-gray-700/50 rounded-lg p-4 border border-red-500/20">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <h4 className="text-white font-medium">{user.username}</h4>
+                              <p className="text-gray-400 text-sm mt-1"><strong>Reason:</strong> {user.reason}</p>
+                              <p className="text-gray-500 text-xs mt-2">Banned {new Date(user.bannedAt).toLocaleDateString()} by {user.bannedBy}</p>
+                            </div>
+                            <button
+                              onClick={() => handleUnbanUser(user.id)}
+                              className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded transition-colors text-sm"
+                            >
+                              Unban
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 text-center py-8">No banned users</p>
                   )}
                 </div>
               </div>
