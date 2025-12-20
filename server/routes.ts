@@ -64,5 +64,34 @@ export async function registerRoutes(
     res.json({ stats, gameStats });
   });
 
+  const games: Map<string, any> = new Map([
+    ["snake", { id: "snake", title: "Snake", version: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 50 }],
+    ["memory", { id: "memory", title: "Memory Match", version: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 40 }],
+    ["platformer", { id: "platformer", title: "Platformer", version: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 80 }],
+    ["bloxd", { id: "bloxd", title: "Bloxd.io (Scratch Edition)", version: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 1024 * 50 }],
+  ]);
+
+  app.get("/api/admin/games", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    res.json({ games: Array.from(games.values()) });
+  });
+
+  app.delete("/api/admin/games/:gameId", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const { gameId } = req.params;
+    if (games.has(gameId)) {
+      games.delete(gameId);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: "Game not found" });
+    }
+  });
+
   return httpServer;
 }

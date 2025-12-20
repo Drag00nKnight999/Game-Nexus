@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, BarChart3, Gamepad2, Shield } from "lucide-react";
+import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2 } from "lucide-react";
 
 interface GameStats {
   title: string;
@@ -14,6 +14,14 @@ interface UserStats {
   totalPlays: number;
 }
 
+interface GameFile {
+  id: string;
+  title: string;
+  version: string;
+  uploadedAt: string;
+  size: number;
+}
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState("stats");
   const [stats, setStats] = useState<UserStats>({
@@ -22,12 +30,17 @@ export default function AdminPanel() {
     totalPlays: 0,
   });
   const [gameStats, setGameStats] = useState<GameStats[]>([]);
+  const [gameFiles, setGameFiles] = useState<GameFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchStats();
-  }, []);
+    if (activeTab === "games") {
+      fetchGames();
+    }
+  }, [activeTab]);
 
   const fetchStats = async () => {
     try {
@@ -43,6 +56,35 @@ export default function AdminPanel() {
       console.error("Failed to fetch stats:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchGames = async () => {
+    try {
+      const response = await fetch("/api/admin/games");
+      if (response.ok) {
+        const data = await response.json();
+        setGameFiles(data.games || []);
+      } else if (response.status === 401) {
+        navigate("/admin/login");
+      }
+    } catch (err) {
+      console.error("Failed to fetch games:", err);
+    }
+  };
+
+  const handleDeleteGame = async (gameId: string) => {
+    if (!confirm("Are you sure you want to delete this game?")) return;
+    
+    try {
+      const response = await fetch(`/api/admin/games/${gameId}`, {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        setGameFiles(gameFiles.filter(g => g.id !== gameId));
+      }
+    } catch (err) {
+      console.error("Failed to delete game:", err);
     }
   };
 
@@ -98,7 +140,7 @@ export default function AdminPanel() {
               }`}
             >
               <Gamepad2 size={20} />
-              Games
+              Manage Games
             </button>
           </div>
         </div>
@@ -127,44 +169,49 @@ export default function AdminPanel() {
             )}
 
             {activeTab === "games" && (
-              <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-                {gameStats.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-900 border-b border-gray-700">
-                        <tr>
-                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-300">
-                            Game
-                          </th>
-                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-300">
-                            Plays
-                          </th>
-                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-300">
-                            Avg Time
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {gameStats.map((game, idx) => (
-                          <tr
-                            key={idx}
-                            className="border-b border-gray-700 hover:bg-gray-700/50 transition-colors"
-                          >
-                            <td className="px-6 py-4 text-white">{game.title}</td>
-                            <td className="px-6 py-4 text-gray-300">{game.plays}</td>
-                            <td className="px-6 py-4 text-gray-300">
-                              {game.averageTime}s
-                            </td>
+              <div className="space-y-6">
+                <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                  <h3 className="text-lg font-semibold text-white mb-4">Game Files</h3>
+                  {gameFiles.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-gray-700">
+                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Title</th>
+                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Version</th>
+                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Size</th>
+                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Uploaded</th>
+                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Action</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="p-8 text-center">
-                    <p className="text-gray-400">No game stats available yet</p>
-                  </div>
-                )}
+                        </thead>
+                        <tbody>
+                          {gameFiles.map((game) => (
+                            <tr
+                              key={game.id}
+                              className="border-b border-gray-700 hover:bg-gray-700/50 transition-colors"
+                            >
+                              <td className="px-4 py-3 text-white">{game.title}</td>
+                              <td className="px-4 py-3 text-gray-300">{game.version}</td>
+                              <td className="px-4 py-3 text-gray-300">{(game.size / 1024 / 1024).toFixed(2)}MB</td>
+                              <td className="px-4 py-3 text-gray-300 text-sm">{new Date(game.uploadedAt).toLocaleDateString()}</td>
+                              <td className="px-4 py-3">
+                                <button
+                                  onClick={() => handleDeleteGame(game.id)}
+                                  className="p-2 hover:bg-red-500/20 text-red-400 rounded transition-colors"
+                                  title="Delete game"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 text-center py-8">No game files uploaded yet</p>
+                  )}
+                </div>
               </div>
             )}
           </>
