@@ -130,6 +130,7 @@ export async function registerRoutes(
       return res.status(400).json({ error: "Username and reason required" });
     }
 
+    const normalizedUsername = username.toLowerCase();
     const userId = `user_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const bannedUser = {
       id: userId,
@@ -139,7 +140,7 @@ export async function registerRoutes(
       bannedBy: "admin",
     };
 
-    bannedUsers.set(userId, bannedUser);
+    bannedUsers.set(normalizedUsername, bannedUser);
     res.json({ bannedUser });
   });
 
@@ -149,8 +150,10 @@ export async function registerRoutes(
     }
 
     const { userId } = req.params;
-    if (bannedUsers.has(userId)) {
-      bannedUsers.delete(userId);
+    const userToUnban = Array.from(bannedUsers.values()).find(u => u.id === userId);
+    if (userToUnban) {
+      const normalizedUsername = userToUnban.username.toLowerCase();
+      bannedUsers.delete(normalizedUsername);
       res.json({ success: true });
     } else {
       res.status(404).json({ error: "User not found" });
@@ -216,7 +219,8 @@ export async function registerRoutes(
       return res.status(400).json({ error: "Username and text required" });
     }
 
-    if (bannedUsers.has(username)) {
+    const normalizedUsername = username.toLowerCase();
+    if (bannedUsers.has(normalizedUsername)) {
       return res.status(403).json({ error: "User is banned" });
     }
 
@@ -301,7 +305,12 @@ export async function registerRoutes(
     if (banUser) {
       const message = chatMessages.find((msg) => msg.id === report.messageId);
       if (message) {
-        bannedUsers.set(message.username, { bannedAt: new Date().toISOString() });
+        const normalizedUsername = message.username.toLowerCase();
+        bannedUsers.set(normalizedUsername, { 
+          id: `user_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+          username: message.username,
+          bannedAt: new Date().toISOString() 
+        });
       }
     }
 
