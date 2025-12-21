@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2, Users, AlertCircle, ChevronDown, Flag } from "lucide-react";
+import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2, Users, AlertCircle, ChevronDown, Flag, Search } from "lucide-react";
 
 interface GameStats {
   title: string;
@@ -51,6 +51,13 @@ interface ChatReport {
   };
 }
 
+interface ChatUser {
+  username: string;
+  messageCount: number;
+  lastMessageAt: string;
+  isBanned: boolean;
+}
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState("stats");
   const [stats, setStats] = useState<UserStats>({
@@ -69,6 +76,8 @@ export default function AdminPanel() {
   const [newVersionGame, setNewVersionGame] = useState<string | null>(null);
   const [newVersionNum, setNewVersionNum] = useState("");
   const [chatReports, setChatReports] = useState<ChatReport[]>([]);
+  const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -78,6 +87,9 @@ export default function AdminPanel() {
     }
     if (activeTab === "users") {
       fetchBannedUsers();
+    }
+    if (activeTab === "all-users") {
+      fetchChatUsers();
     }
     if (activeTab === "reports") {
       fetchChatReports();
@@ -245,6 +257,24 @@ export default function AdminPanel() {
     }
   };
 
+  const fetchChatUsers = async () => {
+    try {
+      const response = await fetch("/api/admin/chat/users");
+      if (response.ok) {
+        const data = await response.json();
+        setChatUsers(data.users || []);
+      } else if (response.status === 401) {
+        navigate("/admin/login");
+      }
+    } catch (err) {
+      console.error("Failed to fetch chat users:", err);
+    }
+  };
+
+  const filteredUsers = chatUsers.filter((user) =>
+    user.username.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   const handleLogout = async () => {
     try {
       await fetch("/api/admin/logout", { method: "POST" });
@@ -309,6 +339,17 @@ export default function AdminPanel() {
             >
               <Users size={20} />
               Banned Users
+            </button>
+            <button
+              onClick={() => setActiveTab("all-users")}
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
+                activeTab === "all-users"
+                  ? "border-purple-500 text-purple-400"
+                  : "border-transparent text-gray-400 hover:text-white"
+              }`}
+            >
+              <Users size={20} />
+              All Users
             </button>
             <button
               onClick={() => setActiveTab("reports")}
@@ -511,6 +552,61 @@ export default function AdminPanel() {
                     </div>
                   ) : (
                     <p className="text-gray-400 text-center py-8">No banned users</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "all-users" && (
+              <div className="space-y-6">
+                <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <Users size={20} className="text-blue-400" />
+                    Chat Users ({chatUsers.length})
+                  </h3>
+                  <div className="mb-4">
+                    <div className="relative">
+                      <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search users by username..."
+                        className="w-full pl-12 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
+                      />
+                    </div>
+                  </div>
+                  {filteredUsers.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-600 text-gray-400">
+                            <th className="px-4 py-2 text-left">Username</th>
+                            <th className="px-4 py-2 text-center">Messages</th>
+                            <th className="px-4 py-2 text-left">Last Active</th>
+                            <th className="px-4 py-2 text-center">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredUsers.map((user) => (
+                            <tr key={user.username} className="border-b border-gray-700 hover:bg-gray-700/50 transition-colors">
+                              <td className="px-4 py-3 text-white font-medium">{user.username}</td>
+                              <td className="px-4 py-3 text-center text-gray-300">{user.messageCount}</td>
+                              <td className="px-4 py-3 text-gray-400 text-xs">{new Date(user.lastMessageAt).toLocaleDateString()} {new Date(user.lastMessageAt).toLocaleTimeString()}</td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${user.isBanned ? "bg-red-600/30 text-red-300" : "bg-green-600/30 text-green-300"}`}>
+                                  {user.isBanned ? "Banned" : "Active"}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 text-center py-8">
+                      {searchQuery ? "No users found matching your search" : "No chat users yet"}
+                    </p>
                   )}
                 </div>
               </div>

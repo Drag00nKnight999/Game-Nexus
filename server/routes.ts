@@ -212,6 +212,30 @@ export async function registerRoutes(
     res.json({ messages: chatMessages });
   });
 
+  app.get("/api/admin/chat/users", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const users = new Map<string, any>();
+    chatMessages.forEach((msg) => {
+      const normalizedUsername = msg.username.toLowerCase();
+      if (!users.has(normalizedUsername)) {
+        users.set(normalizedUsername, {
+          username: msg.username,
+          messageCount: 0,
+          lastMessageAt: msg.timestamp,
+          isBanned: bannedUsers.has(normalizedUsername),
+        });
+      }
+      const user = users.get(normalizedUsername);
+      user.messageCount += 1;
+      user.lastMessageAt = msg.timestamp;
+    });
+
+    res.json({ users: Array.from(users.values()) });
+  });
+
   app.post("/api/chat/messages", (req: Request, res: Response) => {
     const { username, text } = req.body;
 
