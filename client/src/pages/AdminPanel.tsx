@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2, Users, AlertCircle, ChevronDown } from "lucide-react";
+import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2, Users, AlertCircle, ChevronDown, Flag } from "lucide-react";
 
 interface GameStats {
   title: string;
@@ -38,6 +38,19 @@ interface BannedUser {
   bannedBy: string;
 }
 
+interface ChatReport {
+  id: string;
+  messageId: string;
+  reason: string;
+  reportedBy: string;
+  timestamp: string;
+  status: string;
+  message?: {
+    text: string;
+    username: string;
+  };
+}
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState("stats");
   const [stats, setStats] = useState<UserStats>({
@@ -55,6 +68,7 @@ export default function AdminPanel() {
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
   const [newVersionGame, setNewVersionGame] = useState<string | null>(null);
   const [newVersionNum, setNewVersionNum] = useState("");
+  const [chatReports, setChatReports] = useState<ChatReport[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -64,6 +78,9 @@ export default function AdminPanel() {
     }
     if (activeTab === "users") {
       fetchBannedUsers();
+    }
+    if (activeTab === "reports") {
+      fetchChatReports();
     }
   }, [activeTab]);
 
@@ -199,6 +216,35 @@ export default function AdminPanel() {
     }
   };
 
+  const fetchChatReports = async () => {
+    try {
+      const response = await fetch("/api/chat/reports");
+      if (response.ok) {
+        const data = await response.json();
+        setChatReports(data.reports || []);
+      } else if (response.status === 401) {
+        navigate("/admin/login");
+      }
+    } catch (err) {
+      console.error("Failed to fetch reports:", err);
+    }
+  };
+
+  const handleReportAction = async (reportId: string, action: string, banUser: boolean = false) => {
+    try {
+      const response = await fetch(`/api/admin/chat/reports/${reportId}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, banUser }),
+      });
+      if (response.ok) {
+        setChatReports(chatReports.map(r => r.id === reportId ? { ...r, status: action } : r));
+      }
+    } catch (err) {
+      console.error("Failed to handle report:", err);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await fetch("/api/admin/logout", { method: "POST" });
@@ -263,6 +309,17 @@ export default function AdminPanel() {
             >
               <Users size={20} />
               Banned Users
+            </button>
+            <button
+              onClick={() => setActiveTab("reports")}
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
+                activeTab === "reports"
+                  ? "border-purple-500 text-purple-400"
+                  : "border-transparent text-gray-400 hover:text-white"
+              }`}
+            >
+              <Flag size={20} />
+              Chat Reports
             </button>
           </div>
         </div>
@@ -454,6 +511,63 @@ export default function AdminPanel() {
                     </div>
                   ) : (
                     <p className="text-gray-400 text-center py-8">No banned users</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "reports" && (
+              <div className="space-y-6">
+                <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <Flag size={20} className="text-orange-400" />
+                    Chat Reports ({chatReports.length})
+                  </h3>
+                  {chatReports.length > 0 ? (
+                    <div className="space-y-4">
+                      {chatReports.map((report) => (
+                        <div key={report.id} className={`rounded-lg p-4 border ${report.status === "pending" ? "border-orange-500/30 bg-orange-500/10" : "border-gray-600 bg-gray-700/50"}`}>
+                          <div className="mb-3">
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <h4 className="text-white font-medium">Message from <span className="text-orange-400">{report.message?.username}</span></h4>
+                                <p className="text-gray-400 text-sm mt-1">{report.message?.text}</p>
+                              </div>
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${report.status === "pending" ? "bg-orange-600 text-white" : "bg-gray-600 text-gray-300"}`}>
+                                {report.status}
+                              </span>
+                            </div>
+                            <p className="text-gray-500 text-xs">Reported by <strong>{report.reportedBy}</strong> for: <strong>{report.reason}</strong></p>
+                            <p className="text-gray-600 text-xs mt-1">{new Date(report.timestamp).toLocaleString()}</p>
+                          </div>
+                          
+                          {report.status === "pending" && (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleReportAction(report.id, "dismiss")}
+                                className="flex-1 px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded text-sm transition-colors"
+                              >
+                                Dismiss
+                              </button>
+                              <button
+                                onClick={() => handleReportAction(report.id, "delete_message")}
+                                className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-500 text-white rounded text-sm transition-colors"
+                              >
+                                Delete Message
+                              </button>
+                              <button
+                                onClick={() => handleReportAction(report.id, "delete_message", true)}
+                                className="flex-1 px-3 py-2 bg-red-700 hover:bg-red-600 text-white rounded text-sm transition-colors"
+                              >
+                                Delete & Ban User
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 text-center py-8">No reports yet</p>
                   )}
                 </div>
               </div>
