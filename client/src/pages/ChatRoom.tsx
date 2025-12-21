@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, ArrowLeft } from "lucide-react";
+import { Send, ArrowLeft, Flag, X } from "lucide-react";
 import { Link } from "react-router-dom";
 
 interface Message {
@@ -8,6 +8,16 @@ interface Message {
   text: string;
   timestamp: string;
   flagged: boolean;
+  reported?: boolean;
+  reportCount?: number;
+}
+
+interface Report {
+  id: string;
+  messageId: string;
+  username: string;
+  reason: string;
+  timestamp: string;
 }
 
 export default function ChatRoom() {
@@ -16,6 +26,9 @@ export default function ChatRoom() {
   const [username, setUsername] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [reportingMessageId, setReportingMessageId] = useState<string | null>(null);
+  const [reportReason, setReportReason] = useState("");
+  const [reportedMessages, setReportedMessages] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,6 +83,37 @@ export default function ChatRoom() {
     if (username.trim()) {
       localStorage.setItem("chatUsername", username);
       setIsLoggedIn(true);
+    }
+  };
+
+  const handleReportMessage = async (messageId: string) => {
+    if (!reportReason.trim()) {
+      alert("Please provide a reason for reporting");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/chat/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId, reason: reportReason, reportedBy: username }),
+      });
+
+      if (response.ok) {
+        setReportedMessages(new Set([...reportedMessages, messageId]));
+        setMessages(
+          messages.map((msg) =>
+            msg.id === messageId
+              ? { ...msg, reported: true, reportCount: (msg.reportCount || 0) + 1 }
+              : msg
+          )
+        );
+        setReportingMessageId(null);
+        setReportReason("");
+        alert("Message reported successfully!");
+      }
+    } catch (err) {
+      console.error("Failed to report message:", err);
     }
   };
 
@@ -154,22 +198,70 @@ export default function ChatRoom() {
                 className={`rounded-lg p-3 ${
                   msg.flagged
                     ? "bg-red-500/20 border border-red-500/30"
+                    : msg.reported
+                    ? "bg-orange-500/20 border border-orange-500/30"
                     : "bg-gray-800 border border-gray-700"
                 }`}
               >
                 <div className="flex justify-between items-start">
-                  <div>
+                  <div className="flex-1">
                     <h4 className="text-white font-medium">{msg.username}</h4>
                     <p className={`mt-1 ${msg.flagged ? "text-red-300 line-through" : "text-gray-300"}`}>
                       {msg.text}
                     </p>
                   </div>
-                  <span className="text-gray-500 text-xs whitespace-nowrap ml-2">
-                    {new Date(msg.timestamp).toLocaleTimeString()}
-                  </span>
+                  <div className="flex items-center gap-2 ml-2">
+                    <button
+                      onClick={() => setReportingMessageId(msg.id)}
+                      className="p-1 text-gray-400 hover:text-orange-400 transition-colors"
+                      title="Report message"
+                    >
+                      <Flag size={16} />
+                    </button>
+                    <span className="text-gray-500 text-xs whitespace-nowrap">
+                      {new Date(msg.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
                 </div>
+
                 {msg.flagged && (
                   <p className="text-red-400 text-xs mt-2">⚠️ Message flagged for inappropriate content</p>
+                )}
+
+                {msg.reported && (
+                  <p className="text-orange-400 text-xs mt-2">🚩 Message reported by community ({msg.reportCount} reports)</p>
+                )}
+
+                {reportingMessageId === msg.id && (
+                  <div className="mt-3 p-3 bg-gray-700 rounded border border-gray-600">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm text-gray-300">Report reason:</label>
+                      <button
+                        onClick={() => setReportingMessageId(null)}
+                        className="text-gray-400 hover:text-white"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                    <select
+                      value={reportReason}
+                      onChange={(e) => setReportReason(e.target.value)}
+                      className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-sm text-white mb-2"
+                    >
+                      <option value="">Select a reason...</option>
+                      <option value="harassment">Harassment or bullying</option>
+                      <option value="spam">Spam</option>
+                      <option value="inappropriate">Inappropriate content</option>
+                      <option value="advertising">Advertising or self-promotion</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <button
+                      onClick={() => handleReportMessage(msg.id)}
+                      className="w-full px-2 py-1 bg-orange-600 hover:bg-orange-500 text-white text-sm rounded transition-colors"
+                    >
+                      Submit Report
+                    </button>
+                  </div>
                 )}
               </div>
             ))

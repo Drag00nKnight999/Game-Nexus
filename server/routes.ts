@@ -73,6 +73,22 @@ export async function registerRoutes(
 
   const bannedUsers: Map<string, any> = new Map();
   const chatMessages: any[] = [];
+  const chatReports: any[] = [];
+  
+  const swearWords = new Set([
+    "damn", "hell", "crap", "piss", "bastard", "bitch", "ass", "asshole",
+    "shit", "fuck", "fucked", "fucking", "cunt", "cock", "dick", "pussy",
+    "whore", "slut", "motherfucker", "goddamn", "jackass", "dipshit",
+    "arsehole", "bollocks", "bugger", "arse", "twat", "wanker",
+  ]);
+
+  const containsSwearWords = (text: string): boolean => {
+    const words = text.toLowerCase().split(/\s+/);
+    return words.some(word => {
+      const cleanWord = word.replace(/[^a-z]/g, "");
+      return swearWords.has(cleanWord);
+    });
+  };
 
   app.get("/api/admin/games", (req: Request, res: Response) => {
     if (!isAuthenticated(req)) {
@@ -204,16 +220,92 @@ export async function registerRoutes(
       return res.status(403).json({ error: "User is banned" });
     }
 
+    const flagged = containsSwearWords(text);
+
     const message = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
       username,
       text,
       timestamp: new Date().toISOString(),
-      flagged: false,
+      flagged,
     };
 
     chatMessages.push(message);
     res.json({ message });
+  });
+
+  app.get("/api/chat/reports", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const reportsWithMessages = chatReports.map((report) => ({
+      ...report,
+      message: chatMessages.find((msg) => msg.id === report.messageId),
+    }));
+
+    res.json({ reports: reportsWithMessages });
+  });
+
+  app.post("/api/chat/reports", (req: Request, res: Response) => {
+    const { messageId, reason, reportedBy } = req.body;
+
+    if (!messageId || !reason || !reportedBy) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const message = chatMessages.find((msg) => msg.id === messageId);
+    if (!message) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    const report = {
+      id: `report_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      messageId,
+      reason,
+      reportedBy,
+      timestamp: new Date().toISOString(),
+      status: "pending",
+    };
+
+    chatReports.push(report);
+
+    message.reported = true;
+    message.reportCount = (message.reportCount || 0) + 1;
+
+    res.json({ report });
+  });
+
+  app.post("/api/admin/chat/reports/:reportId/action", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const { reportId } = req.params;
+    const { action, banUser } = req.body;
+
+    const report = chatReports.find((r) => r.id === reportId);
+    if (!report) {
+      return res.status(404).json({ error: "Report not found" });
+    }
+
+    report.status = action;
+
+    if (action === "delete_message") {
+      const messageIndex = chatMessages.findIndex((msg) => msg.id === report.messageId);
+      if (messageIndex !== -1) {
+        chatMessages.splice(messageIndex, 1);
+      }
+    }
+
+    if (banUser) {
+      const message = chatMessages.find((msg) => msg.id === report.messageId);
+      if (message) {
+        bannedUsers.set(message.username, { bannedAt: new Date().toISOString() });
+      }
+    }
+
+    res.json({ report });
   });
 
   return httpServer;
