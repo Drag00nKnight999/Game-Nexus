@@ -29,6 +29,7 @@ export default function ChatRoom() {
   const [reportingMessageId, setReportingMessageId] = useState<string | null>(null);
   const [reportReason, setReportReason] = useState("");
   const [reportedMessages, setReportedMessages] = useState<Set<string>>(new Set());
+  const [isBanned, setIsBanned] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,6 +73,10 @@ export default function ChatRoom() {
         const data = await response.json();
         setMessages([...messages, data.message]);
         setInputText("");
+      } else if (response.status === 403) {
+        setIsBanned(true);
+      } else {
+        alert("Failed to send message");
       }
     } catch (err) {
       console.error("Failed to send message:", err);
@@ -159,6 +164,28 @@ export default function ChatRoom() {
                 Enter Chat
               </button>
             </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isBanned) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-8">
+            <h1 className="text-2xl font-bold text-red-400 mb-4">Access Denied</h1>
+            <p className="text-gray-300 mb-6">
+              Your account has been banned from the chat for violating community guidelines. If you believe this is a mistake, please contact an administrator.
+            </p>
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
+            >
+              <ArrowLeft size={20} />
+              Back to Home
+            </Link>
           </div>
         </div>
       </div>
@@ -287,6 +314,12 @@ export default function ChatRoom() {
             </button>
           </div>
         </form>
+
+        {isBanned && (
+          <div className="bg-red-500/20 border-t border-red-500/30 p-3">
+            <p className="text-red-300 text-sm text-center">⚠️ You have been banned from chat and cannot send messages.</p>
+          </div>
+        )}
       </main>
     </div>
   );
