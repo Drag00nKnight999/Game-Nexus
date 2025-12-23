@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, ArrowLeft, Flag, X } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Send, ArrowLeft, Flag, X, LogOut } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
 
 interface Message {
   id: string;
@@ -23,24 +24,37 @@ interface Report {
 export default function ChatRoom() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
-  const [username, setUsername] = useState("");
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reportingMessageId, setReportingMessageId] = useState<string | null>(null);
   const [reportReason, setReportReason] = useState("");
   const [reportedMessages, setReportedMessages] = useState<Set<string>>(new Set());
   const [isBanned, setIsBanned] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { username, logout } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchMessages();
-    const savedUsername = localStorage.getItem("chatUsername");
-    if (savedUsername) {
-      setUsername(savedUsername);
-      setIsLoggedIn(true);
-    }
     setLoading(false);
+    checkBanStatus();
   }, []);
+
+  const checkBanStatus = async () => {
+    try {
+      const response = await fetch("/api/admin/banned-users");
+      if (response.ok) {
+        const data = await response.json();
+        const banned = data.bannedUsers.find(
+          (u: any) => u.username.toLowerCase() === username?.toLowerCase()
+        );
+        if (banned) {
+          setIsBanned(true);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to check ban status:", err);
+    }
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -83,12 +97,9 @@ export default function ChatRoom() {
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (username.trim()) {
-      localStorage.setItem("chatUsername", username);
-      setIsLoggedIn(true);
-    }
+  const handleLogout = () => {
+    logout();
+    navigate("/");
   };
 
   const handleReportMessage = async (messageId: string) => {
@@ -126,46 +137,6 @@ export default function ChatRoom() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
         <p className="text-gray-400">Loading chat...</p>
-      </div>
-    );
-  }
-
-  if (!isLoggedIn) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <Link
-            to="/"
-            className="flex items-center gap-2 text-purple-400 hover:text-purple-300 mb-6"
-          >
-            <ArrowLeft size={20} />
-            Back to Home
-          </Link>
-          <div className="bg-gray-800 rounded-lg border border-gray-700 p-8">
-            <h1 className="text-2xl font-bold text-white mb-6">GameNexus Chat</h1>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Choose Username
-                </label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your username"
-                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
-                  maxLength={20}
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-medium transition-colors"
-              >
-                Enter Chat
-              </button>
-            </form>
-          </div>
-        </div>
       </div>
     );
   }
@@ -208,6 +179,13 @@ export default function ChatRoom() {
               <ArrowLeft size={20} />
               Home
             </Link>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+            >
+              <LogOut size={20} />
+              Logout
+            </button>
           </div>
         </div>
       </header>

@@ -1,6 +1,7 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Gamepad2, Brain, Box, Blocks, Search, X } from "lucide-react";
+import { Gamepad2, Brain, Box, Blocks, Search, X, LogOut } from "lucide-react";
+import { useAuth } from "../hooks/useAuth";
 
 interface GameCardProps {
   title: string;
@@ -39,6 +40,13 @@ function GameCard({ title, description, icon, link, color }: GameCardProps) {
 
 export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const { isLoggedIn, username, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/");
+  };
 
   const games = [
     {
@@ -81,23 +89,56 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-      <header className="py-8 px-4">
-        <div className="max-w-6xl mx-auto text-center">
-          <h1 className="text-5xl font-bold text-white mb-4">
-            Game<span className="text-purple-400">Nexus</span>
-          </h1>
-          <p className="text-gray-400 text-lg">Your destination for fun browser games</p>
+      <header className="py-8 px-4 border-b border-gray-700">
+        <div className="max-w-6xl mx-auto flex justify-between items-center mb-6">
+          <div className="text-center flex-1">
+            <h1 className="text-5xl font-bold text-white mb-4">
+              Game<span className="text-purple-400">Nexus</span>
+            </h1>
+            <p className="text-gray-400 text-lg">Your destination for fun browser games</p>
+          </div>
+          <div className="flex items-center gap-4">
+            {isLoggedIn ? (
+              <>
+                <span className="text-gray-300 text-sm">
+                  Welcome, <span className="text-purple-400 font-medium">{username}</span>
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+                >
+                  <LogOut size={18} />
+                  Logout
+                </button>
+              </>
+            ) : (
+              <Link
+                to="/login"
+                className="px-6 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-medium transition-colors"
+              >
+                Login
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 
       <main className="px-4 pb-12">
-        <div className="max-w-6xl mx-auto mb-8">
+        <div className="max-w-6xl mx-auto mb-8 flex gap-4">
           <Link
             to="/chat"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-br from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white rounded-lg font-medium transition-all duration-300 hover:shadow-lg"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-br from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white rounded-lg font-medium transition-all duration-300 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
           >
             💬 Join Community Chat
           </Link>
+          {isLoggedIn && (
+            <Link
+              to="/admin"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-br from-orange-500 to-red-600 hover:from-orange-400 hover:to-red-500 text-white rounded-lg font-medium transition-all duration-300 hover:shadow-lg"
+            >
+              ⚙️ Admin Panel
+            </Link>
+          )}
         </div>
         <div className="max-w-6xl mx-auto">
           <div className="mb-8">
