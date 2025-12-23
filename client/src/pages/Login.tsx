@@ -6,9 +6,10 @@ import { Link } from "react-router-dom";
 export default function Login() {
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
+  const [isRegister, setIsRegister] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim()) {
       setError("Username cannot be empty");
@@ -34,8 +35,10 @@ export default function Login() {
         </Link>
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-8">
           <h1 className="text-3xl font-bold text-white mb-2">GameNexus</h1>
-          <p className="text-gray-400 mb-6">Sign in to access chat and features</p>
-          <form onSubmit={handleLogin} className="space-y-4">
+          <p className="text-gray-400 mb-6">
+            {isRegister ? "Create your account" : "Sign in to access chat and features"}
+          </p>
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 Username
@@ -58,9 +61,26 @@ export default function Login() {
               type="submit"
               className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-medium transition-colors"
             >
-              Sign In
+              {isRegister ? "Create Account" : "Sign In"}
             </button>
           </form>
+
+          <div className="mt-6 pt-6 border-t border-gray-700">
+            <p className="text-gray-400 text-sm text-center mb-4">
+              {isRegister ? "Already have an account?" : "Don't have an account?"}
+            </p>
+            <button
+              onClick={() => {
+                setIsRegister(!isRegister);
+                setUsername("");
+                setError("");
+              }}
+              className="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+            >
+              {isRegister ? "Sign In" : "Register"}
+            </button>
+          </div>
+
           <p className="text-gray-400 text-sm mt-6">
             By signing in, you agree to our community guidelines and terms of service.
           </p>
