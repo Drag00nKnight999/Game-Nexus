@@ -40,13 +40,15 @@ function GameCard({ title, description, icon, link, color }: GameCardProps) {
 
 export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const { isLoggedIn, username, logout } = useAuth();
+  const { isLoggedIn, username, logout, rank } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
     logout();
     navigate("/");
   };
+
+  const isAdmin = rank === "developer" || rank === "admin";
 
   const games = [
     {
@@ -102,6 +104,7 @@ export default function HomePage() {
               <>
                 <span className="text-gray-300 text-sm">
                   Welcome, <span className="text-purple-400 font-medium">{username}</span>
+                  {rank !== "user" && <span className="ml-2 text-yellow-400 text-xs">({rank === "developer" ? "🧑‍💻 Developer 🧑‍💻" : rank === "admin" ? "Admin" : rank})</span>}
                 </span>
                 <button
                   onClick={handleLogout}
@@ -131,7 +134,7 @@ export default function HomePage() {
           >
             💬 Join Community Chat
           </Link>
-          {isLoggedIn && (
+          {isAdmin && (
             <Link
               to="/admin"
               className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-br from-orange-500 to-red-600 hover:from-orange-400 hover:to-red-500 text-white rounded-lg font-medium transition-all duration-300 hover:shadow-lg"

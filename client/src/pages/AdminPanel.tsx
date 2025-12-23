@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut, BarChart3, Gamepad2, Shield, Upload, Trash2, Users, AlertCircle, ChevronDown, Flag, Search } from "lucide-react";
+import { useAuth } from "../hooks/useAuth";
 
 interface GameStats {
   title: string;
@@ -59,6 +60,33 @@ interface ChatUser {
 }
 
 export default function AdminPanel() {
+  const { rank } = useAuth();
+  const navigate = useNavigate();
+  
+  // Check if user has admin or developer rank
+  const isAdmin = rank === "developer" || rank === "admin";
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-8">
+            <h1 className="text-2xl font-bold text-red-400 mb-4">Access Denied</h1>
+            <p className="text-gray-300 mb-6">
+              You don't have permission to access the admin panel. Only developers and admins can access this area.
+            </p>
+            <button
+              onClick={() => navigate("/")}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
+            >
+              Back to Home
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const [activeTab, setActiveTab] = useState("stats");
   const [stats, setStats] = useState<UserStats>({
     totalUsers: 0,
@@ -78,7 +106,6 @@ export default function AdminPanel() {
   const [chatReports, setChatReports] = useState<ChatReport[]>([]);
   const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const navigate = useNavigate();
 
   useEffect(() => {
     fetchStats();

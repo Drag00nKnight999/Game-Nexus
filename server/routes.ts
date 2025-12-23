@@ -6,6 +6,11 @@ import { storage } from "./storage";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const sessions = new Set<string>();
 
+// Rank system: "developer" > "admin" > "user"
+const userRanks: Map<string, string> = new Map([
+  ["drag00nknightofficial", "developer"], // Developer rank for the site creator
+]);
+
 function generateSessionId(): string {
   return Math.random().toString(36).substring(7);
 }
@@ -13,6 +18,11 @@ function generateSessionId(): string {
 function isAuthenticated(req: Request): boolean {
   const sessionId = req.cookies?.sessionId;
   return sessionId && sessions.has(sessionId) ? true : false;
+}
+
+function getUserRank(username: string): string {
+  const normalizedUsername = username.toLowerCase();
+  return userRanks.get(normalizedUsername) || "user";
 }
 
 export async function registerRoutes(
@@ -41,6 +51,12 @@ export async function registerRoutes(
     }
     res.clearCookie("sessionId");
     res.json({ success: true });
+  });
+
+  app.get("/api/user/rank/:username", (req: Request, res: Response) => {
+    const { username } = req.params;
+    const rank = getUserRank(username);
+    res.json({ username, rank });
   });
 
   app.get("/api/admin/stats", (req: Request, res: Response) => {
