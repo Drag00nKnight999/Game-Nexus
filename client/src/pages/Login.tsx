@@ -15,8 +15,8 @@ export default function Login() {
       setError("Username cannot be empty");
       return;
     }
-    if (username.length > 20) {
-      setError("Username must be 20 characters or less");
+    if (username.length > 25) {
+      setError("Username must be 25 characters or less");
       return;
     }
     localStorage.setItem("gameNexusUsername", username);
@@ -52,9 +52,9 @@ export default function Login() {
                 }}
                 placeholder="Enter your username"
                 className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
-                maxLength={20}
+                maxLength={25}
               />
-              <p className="text-xs text-gray-500 mt-1">{username.length}/20 characters</p>
+              <p className="text-xs text-gray-500 mt-1">{username.length}/25 characters</p>
             </div>
             {error && <p className="text-red-400 text-sm">{error}</p>}
             <button
