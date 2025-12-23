@@ -4,12 +4,21 @@ import cookieParser from "cookie-parser";
 import { storage } from "./storage";
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
-const sessions = new Set<string>();
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+const sessions = new Map<string, { createdAt: number }>();
 
 // Rank system: "developer" > "admin" > "user"
 const userRanks: Map<string, string> = new Map([
   ["drag00nknightofficial", "developer"], // Developer rank for the site creator
 ]);
+
+// Rate limiting for sensitive operations
+const adminRateLimit = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_MINUTE = 10;
+
+// Audit log for admin actions
+const auditLog: any[] = [];
 
 function generateSessionId(): string {
   return Math.random().toString(36).substring(7);
@@ -17,12 +26,63 @@ function generateSessionId(): string {
 
 function isAuthenticated(req: Request): boolean {
   const sessionId = req.cookies?.sessionId;
-  return sessionId && sessions.has(sessionId) ? true : false;
+  if (!sessionId || !sessions.has(sessionId)) return false;
+  
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  
+  // Check if session has expired
+  if (Date.now() - session.createdAt > SESSION_TIMEOUT) {
+    sessions.delete(sessionId);
+    return false;
+  }
+  
+  return true;
 }
 
 function getUserRank(username: string): string {
   const normalizedUsername = username.toLowerCase();
   return userRanks.get(normalizedUsername) || "user";
+}
+
+function isAdmin(username: string): boolean {
+  const rank = getUserRank(username);
+  return rank === "developer" || rank === "admin";
+}
+
+function checkRateLimit(identifier: string): boolean {
+  const now = Date.now();
+  if (!adminRateLimit.has(identifier)) {
+    adminRateLimit.set(identifier, []);
+  }
+  
+  const timestamps = adminRateLimit.get(identifier) || [];
+  // Remove timestamps outside the window
+  const validTimestamps = timestamps.filter(ts => now - ts < RATE_LIMIT_WINDOW);
+  
+  if (validTimestamps.length >= MAX_REQUESTS_PER_MINUTE) {
+    return false;
+  }
+  
+  validTimestamps.push(now);
+  adminRateLimit.set(identifier, validTimestamps);
+  return true;
+}
+
+function logAuditAction(action: string, details: any): void {
+  auditLog.push({
+    timestamp: new Date().toISOString(),
+    action,
+    details,
+  });
+}
+
+function requireAdminRank(req: Request, res: Response, username: string): boolean {
+  if (!isAdmin(username)) {
+    res.status(403).json({ error: "Unauthorized: Admin access required" });
+    return false;
+  }
+  return true;
 }
 
 export async function registerRoutes(
@@ -36,10 +96,12 @@ export async function registerRoutes(
 
     if (password === ADMIN_PASSWORD) {
       const sessionId = generateSessionId();
-      sessions.add(sessionId);
-      res.cookie("sessionId", sessionId, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+      sessions.set(sessionId, { createdAt: Date.now() });
+      res.cookie("sessionId", sessionId, { httpOnly: true, secure: true, sameSite: "strict", maxAge: SESSION_TIMEOUT });
+      logAuditAction("admin_login", { timestamp: new Date().toISOString() });
       res.json({ success: true });
     } else {
+      logAuditAction("admin_login_failed", { timestamp: new Date().toISOString() });
       res.status(401).json({ error: "Invalid password" });
     }
   });
@@ -48,6 +110,7 @@ export async function registerRoutes(
     const sessionId = req.cookies?.sessionId;
     if (sessionId) {
       sessions.delete(sessionId);
+      logAuditAction("admin_logout", { timestamp: new Date().toISOString() });
     }
     res.clearCookie("sessionId");
     res.json({ success: true });
@@ -119,9 +182,16 @@ export async function registerRoutes(
       return res.status(401).json({ error: "Not authenticated" });
     }
 
+    const { adminPassword } = req.body;
+    if (adminPassword !== ADMIN_PASSWORD) {
+      return res.status(403).json({ error: "Invalid admin password. Sensitive actions require password confirmation." });
+    }
+
     const { gameId } = req.params;
-    if (games.has(gameId)) {
+    const game = games.get(gameId);
+    if (game) {
       games.delete(gameId);
+      logAuditAction("delete_game", { gameId, title: game.title });
       res.json({ success: true });
     } else {
       res.status(404).json({ error: "Game not found" });
@@ -141,9 +211,20 @@ export async function registerRoutes(
       return res.status(401).json({ error: "Not authenticated" });
     }
 
-    const { username, reason } = req.body;
+    const sessionId = req.cookies?.sessionId || "";
+    if (!checkRateLimit(`ban-user-${sessionId}`)) {
+      return res.status(429).json({ error: "Too many requests. Please try again later." });
+    }
+
+    const { username, reason, adminPassword } = req.body;
     if (!username || !reason) {
       return res.status(400).json({ error: "Username and reason required" });
+    }
+
+    // Verify admin password for sensitive action
+    if (adminPassword !== ADMIN_PASSWORD) {
+      logAuditAction("ban_user_unauthorized_attempt", { targetUser: username });
+      return res.status(403).json({ error: "Invalid admin password. Sensitive actions require password confirmation." });
     }
 
     const normalizedUsername = username.toLowerCase();
@@ -157,6 +238,7 @@ export async function registerRoutes(
     };
 
     bannedUsers.set(normalizedUsername, bannedUser);
+    logAuditAction("ban_user", { targetUser: username, reason });
     res.json({ bannedUser });
   });
 
@@ -165,11 +247,22 @@ export async function registerRoutes(
       return res.status(401).json({ error: "Not authenticated" });
     }
 
+    const sessionId = req.cookies?.sessionId || "";
+    if (!checkRateLimit(`unban-user-${sessionId}`)) {
+      return res.status(429).json({ error: "Too many requests. Please try again later." });
+    }
+
+    const { adminPassword } = req.body;
+    if (adminPassword !== ADMIN_PASSWORD) {
+      return res.status(403).json({ error: "Invalid admin password. Sensitive actions require password confirmation." });
+    }
+
     const { userId } = req.params;
     const userToUnban = Array.from(bannedUsers.values()).find(u => u.id === userId);
     if (userToUnban) {
       const normalizedUsername = userToUnban.username.toLowerCase();
       bannedUsers.delete(normalizedUsername);
+      logAuditAction("unban_user", { targetUser: userToUnban.username });
       res.json({ success: true });
     } else {
       res.status(404).json({ error: "User not found" });
@@ -318,6 +411,14 @@ export async function registerRoutes(
     message.reportCount = (message.reportCount || 0) + 1;
 
     res.json({ report });
+  });
+
+  app.get("/api/admin/audit-log", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    res.json({ auditLog: auditLog.slice(-100) }); // Return last 100 actions
   });
 
   app.post("/api/admin/chat/reports/:reportId/action", (req: Request, res: Response) => {

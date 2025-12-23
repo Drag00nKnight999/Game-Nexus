@@ -155,14 +155,20 @@ export default function AdminPanel() {
   };
 
   const handleDeleteGame = async (gameId: string) => {
-    if (!confirm("Are you sure you want to delete this game?")) return;
+    const adminPassword = prompt("Enter admin password to delete this game:");
+    if (!adminPassword) return;
     
     try {
       const response = await fetch(`/api/admin/games/${gameId}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword }),
       });
       if (response.ok) {
         setGameFiles(gameFiles.filter(g => g.id !== gameId));
+        alert("Game deleted successfully");
+      } else if (response.status === 403) {
+        alert("Invalid admin password");
       }
     } catch (err) {
       console.error("Failed to delete game:", err);
@@ -187,17 +193,25 @@ export default function AdminPanel() {
     e.preventDefault();
     if (!banUsername || !banReason) return;
 
+    const adminPassword = prompt("Enter admin password to ban this user:");
+    if (!adminPassword) return;
+
     try {
       const response = await fetch("/api/admin/ban-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: banUsername, reason: banReason }),
+        body: JSON.stringify({ username: banUsername, reason: banReason, adminPassword }),
       });
       if (response.ok) {
         const data = await response.json();
         setBannedUsers([...bannedUsers, data.bannedUser]);
         setBanUsername("");
         setBanReason("");
+        alert("User banned successfully");
+      } else if (response.status === 403) {
+        alert("Invalid admin password");
+      } else if (response.status === 429) {
+        alert("Too many requests. Please try again later.");
       }
     } catch (err) {
       console.error("Failed to ban user:", err);
@@ -205,14 +219,22 @@ export default function AdminPanel() {
   };
 
   const handleUnbanUser = async (userId: string) => {
-    if (!confirm("Are you sure you want to unban this user?")) return;
+    const adminPassword = prompt("Enter admin password to unban this user:");
+    if (!adminPassword) return;
 
     try {
       const response = await fetch(`/api/admin/unban-user/${userId}`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword }),
       });
       if (response.ok) {
         setBannedUsers(bannedUsers.filter(u => u.id !== userId));
+        alert("User unbanned successfully");
+      } else if (response.status === 403) {
+        alert("Invalid admin password");
+      } else if (response.status === 429) {
+        alert("Too many requests. Please try again later.");
       }
     } catch (err) {
       console.error("Failed to unban user:", err);
