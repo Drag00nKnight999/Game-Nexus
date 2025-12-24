@@ -19,7 +19,7 @@ export default function BloxdGame() {
 
       <main className="w-full h-[calc(100vh-80px)]">
         <iframe
-          src="/games/Bloxd.io_Scratch_Edition.html"
+          src="client/src/pages/games/Bloxd.io_scratch_edition.html"
           title="Bloxd.io Scratch Edition"
           className="w-full h-full border-none"
           allow="accelerometer; ambient-light-sensor; autoplay; battery; camera; display-capture; document-domain; encrypted-media; execution-while-not-rendered; execution-while-out-of-viewport; fullscreen; geolocation; gyroscope; magnetometer; microphone; midi; navigation-override; payment; picture-in-picture; publickey-credentials-get; speaker-selection; sync-xhr; usb; vr; wake-lock; xr-spatial-tracking"

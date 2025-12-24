@@ -1,3 +1,4 @@
 User-agent: *
-Disallow: /admin/
-Sitemap: https://game-nexus--Drag00nKnight.replit.app/index.html
+Disallow: /admin
+Disallow: /admin/login
+Sitemap: https://game-nexus--Drag00nKnight.replit.app/sitemap.xml
