@@ -75,8 +75,52 @@ export default function AdminPanel() {
   const { rank } = useAuth();
   const navigate = useNavigate();
 
+  const [activeTab, setActiveTab] = useState("stats");
+  const [stats, setStats] = useState<UserStats>({
+    totalUsers: 0,
+    totalGames: 0,
+    totalPlays: 0,
+  });
+  const [gameStats, setGameStats] = useState<GameStats[]>([]);
+  const [gameFiles, setGameFiles] = useState<GameFile[]>([]);
+  const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [banUsername, setBanUsername] = useState("");
+  const [banReason, setBanReason] = useState("");
+  const [expandedGame, setExpandedGame] = useState<string | null>(null);
+  const [newVersionGame, setNewVersionGame] = useState<string | null>(null);
+  const [newVersionNum, setNewVersionNum] = useState("");
+  const [chatReports, setChatReports] = useState<ChatReport[]>([]);
+  const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+
   // Check if user has admin or developer rank
   const isAdmin = rank === "developer" || rank === "admin";
+
+  useEffect(() => {
+    if (!isAdmin && rank !== "user" && rank !== "") { // only if we actually have a rank and it's not admin
+       // wait for auth to stabilize
+    }
+  }, [isAdmin, rank]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchStats();
+      if (activeTab === "games") {
+        fetchGames();
+      }
+      if (activeTab === "users") {
+        fetchBannedUsers();
+      }
+      if (activeTab === "all-users") {
+        fetchChatUsers();
+      }
+      if (activeTab === "reports") {
+        fetchChatReports();
+      }
+    }
+  }, [activeTab, isAdmin]);
 
   if (!isAdmin) {
     return (
@@ -100,42 +144,6 @@ export default function AdminPanel() {
       </div>
     );
   }
-
-  const [activeTab, setActiveTab] = useState("stats");
-  const [stats, setStats] = useState<UserStats>({
-    totalUsers: 0,
-    totalGames: 0,
-    totalPlays: 0,
-  });
-  const [gameStats, setGameStats] = useState<GameStats[]>([]);
-  const [gameFiles, setGameFiles] = useState<GameFile[]>([]);
-  const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [banUsername, setBanUsername] = useState("");
-  const [banReason, setBanReason] = useState("");
-  const [expandedGame, setExpandedGame] = useState<string | null>(null);
-  const [newVersionGame, setNewVersionGame] = useState<string | null>(null);
-  const [newVersionNum, setNewVersionNum] = useState("");
-  const [chatReports, setChatReports] = useState<ChatReport[]>([]);
-  const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-
-  useEffect(() => {
-    fetchStats();
-    if (activeTab === "games") {
-      fetchGames();
-    }
-    if (activeTab === "users") {
-      fetchBannedUsers();
-    }
-    if (activeTab === "all-users") {
-      fetchChatUsers();
-    }
-    if (activeTab === "reports") {
-      fetchChatReports();
-    }
-  }, [activeTab]);
 
   const fetchStats = async () => {
     try {
