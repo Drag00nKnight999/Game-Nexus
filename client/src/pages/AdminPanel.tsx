@@ -99,12 +99,6 @@ export default function AdminPanel() {
   const isAdmin = rank === "developer" || rank === "admin";
 
   useEffect(() => {
-    if (!isAdmin && rank !== "user" && rank !== "") { // only if we actually have a rank and it's not admin
-       // wait for auth to stabilize
-    }
-  }, [isAdmin, rank]);
-
-  useEffect(() => {
     if (isAdmin) {
       fetchStats();
       if (activeTab === "games") {
@@ -152,12 +146,12 @@ export default function AdminPanel() {
         const data = await response.json();
         setStats(data.stats);
         setGameStats(data.gameStats || []);
+        setLoading(false);
       } else if (response.status === 401) {
         navigate("/admin/login");
       }
     } catch (err) {
       console.error("Failed to fetch stats:", err);
-    } finally {
       setLoading(false);
     }
   };

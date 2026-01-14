@@ -97,7 +97,8 @@ export async function registerRoutes(
     if (password === ADMIN_PASSWORD) {
       const sessionId = generateSessionId();
       sessions.set(sessionId, { createdAt: Date.now() });
-      res.cookie("sessionId", sessionId, { httpOnly: true, secure: true, sameSite: "strict", maxAge: SESSION_TIMEOUT });
+      // Set cookie without expiration to avoid session loss on browser close
+      res.cookie("sessionId", sessionId, { httpOnly: true, secure: true, sameSite: "strict" });
       logAuditAction("admin_login", { timestamp: new Date().toISOString() });
       res.json({ success: true });
     } else {
