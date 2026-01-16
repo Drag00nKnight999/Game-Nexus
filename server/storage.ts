@@ -1,7 +1,5 @@
+import bcrypt from "bcryptjs";
 import { users, type User, type InsertUser } from "@shared/schema";
-
-// modify the interface with any CRUD methods
-// you might need
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -30,7 +28,8 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = this.currentId++;
-    const user: User = { ...insertUser, id };
+    const hashedPassword = await bcrypt.hash(insertUser.password, 10);
+    const user: User = { ...insertUser, password: hashedPassword, id };
     this.users.set(id, user);
     return user;
   }
