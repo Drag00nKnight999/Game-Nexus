@@ -69,6 +69,7 @@ npm run dev
 The app runs on port 5000.
 
 ## Recent Changes
+-March 2026: Project is now on GitHub as well.
 - December 2025: Initial release with 3 games
 - Game library homepage with responsive design
 - High score tracking with localStorage
