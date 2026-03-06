@@ -1,5 +1,7 @@
 # GameNexus - Browser Gaming Portal
 
+[![Made with Replit](https://replit.com/badge/v1.svg)](https://replit.com)
+
 ## Overview
 GameNexus is a gaming website that hosts multiple browser games. Users can browse a game library and play different games directly in their browser.
 
