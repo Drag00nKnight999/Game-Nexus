@@ -1,6 +1,7 @@
 # GameNexus - Browser Gaming Portal
 
-[![Made with Replit](https://replit.com/badge/v1.svg)](https://replit.com)
+[![Made with Replit](https://replit.com/badge?caption=Made%20with%20Replit)](https://replit.com)
+
 
 
 ## Overview
