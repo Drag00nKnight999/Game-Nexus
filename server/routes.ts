@@ -7,6 +7,25 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const sessions = new Map<string, { createdAt: number }>();
 
+// User auth sessions (separate from admin sessions)
+const USER_SESSION_TIMEOUT = 7 * 24 * 60 * 60 * 1000; // 7 days
+const userSessions = new Map<string, { userId: number; username: string; createdAt: number }>();
+
+function generateUserSessionId(): string {
+  return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+}
+
+function getUserSession(req: Request): { userId: number; username: string } | null {
+  const sid = req.cookies?.userSessionId;
+  if (!sid || !userSessions.has(sid)) return null;
+  const session = userSessions.get(sid)!;
+  if (Date.now() - session.createdAt > USER_SESSION_TIMEOUT) {
+    userSessions.delete(sid);
+    return null;
+  }
+  return { userId: session.userId, username: session.username };
+}
+
 // Rank system: "developer" > "admin" > "user"
 const userRanks: Map<string, string> = new Map([
   ["drag00nknightofficial", "developer"], // Developer rank for the site creator
@@ -90,6 +109,64 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   app.use(cookieParser());
+
+  // Seed the developer account on startup
+  await storage.seedUser("Drag00nKnightOFFICIAL", "bloxdhop2025");
+
+  // User auth endpoints
+  app.post("/api/auth/register", async (req: Request, res: Response) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+    if (username.length < 2 || username.length > 25) {
+      return res.status(400).json({ error: "Username must be between 2 and 25 characters" });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+    const existing = await storage.getUserByUsername(username);
+    if (existing) {
+      return res.status(409).json({ error: "Username already taken" });
+    }
+    const user = await storage.createUser({ username, password });
+    const sid = generateUserSessionId();
+    userSessions.set(sid, { userId: user.id, username: user.username, createdAt: Date.now() });
+    res.cookie("userSessionId", sid, { httpOnly: true, sameSite: "strict", maxAge: USER_SESSION_TIMEOUT });
+    return res.json({ username: user.username, rank: getUserRank(user.username) });
+  });
+
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+    const user = await storage.getUserByUsername(username);
+    if (!user) {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
+    const valid = await storage.validatePassword(user, password);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
+    const sid = generateUserSessionId();
+    userSessions.set(sid, { userId: user.id, username: user.username, createdAt: Date.now() });
+    res.cookie("userSessionId", sid, { httpOnly: true, sameSite: "strict", maxAge: USER_SESSION_TIMEOUT });
+    return res.json({ username: user.username, rank: getUserRank(user.username) });
+  });
+
+  app.post("/api/auth/logout", (req: Request, res: Response) => {
+    const sid = req.cookies?.userSessionId;
+    if (sid) userSessions.delete(sid);
+    res.clearCookie("userSessionId");
+    return res.json({ success: true });
+  });
+
+  app.get("/api/auth/me", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    return res.json({ username: session.username, rank: getUserRank(session.username) });
+  });
 
   app.post("/api/admin/login", (req: Request, res: Response) => {
     const { password } = req.body;
@@ -354,10 +431,16 @@ export async function registerRoutes(
   });
 
   app.post("/api/chat/messages", (req: Request, res: Response) => {
-    const { username, text } = req.body;
+    const session = getUserSession(req);
+    if (!session) {
+      return res.status(401).json({ error: "You must be logged in to send messages" });
+    }
 
-    if (!username || !text) {
-      return res.status(400).json({ error: "Username and text required" });
+    const { text } = req.body;
+    const username = session.username;
+
+    if (!text) {
+      return res.status(400).json({ error: "Message text required" });
     }
 
     const normalizedUsername = username.toLowerCase();

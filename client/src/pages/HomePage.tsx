@@ -43,8 +43,8 @@ export default function HomePage() {
   const { isLoggedIn, username, logout, rank } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/");
   };
 

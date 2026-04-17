@@ -15,12 +15,15 @@ import AdminPanel from "./pages/AdminPanel";
 import ChatRoom from "./pages/ChatRoom";
 import NotFound from "./pages/not-found";
 
-function ProtectedRoute({ isLoggedIn, children }: { isLoggedIn: boolean; children: React.ReactNode }) {
+function ProtectedRoute({ isLoggedIn, loading, children }: { isLoggedIn: boolean; loading: boolean; children: React.ReactNode }) {
+  if (loading) {
+    return <div className="flex items-center justify-center h-screen bg-gray-900 text-white">Loading...</div>;
+  }
   return isLoggedIn ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
 function AppRoutes() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, loading } = useAuth();
 
   return (
     <Routes>
@@ -33,7 +36,7 @@ function AppRoutes() {
       <Route
         path="/chat"
         element={
-          <ProtectedRoute isLoggedIn={isLoggedIn}>
+          <ProtectedRoute isLoggedIn={isLoggedIn} loading={loading}>
             <ChatRoom />
           </ProtectedRoute>
         }
@@ -42,7 +45,7 @@ function AppRoutes() {
       <Route
         path="/admin"
         element={
-          <ProtectedRoute isLoggedIn={isLoggedIn}>
+          <ProtectedRoute isLoggedIn={isLoggedIn} loading={loading}>
             <AdminPanel />
           </ProtectedRoute>
         }

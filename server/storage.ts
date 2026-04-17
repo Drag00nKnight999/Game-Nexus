@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { users, type User, type InsertUser } from "@shared/schema";
+import { type User, type InsertUser } from "@shared/schema";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -21,8 +21,9 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
+    const lower = username.toLowerCase();
     return Array.from(this.users.values()).find(
-      (user) => user.username === username,
+      (user) => user.username.toLowerCase() === lower,
     );
   }
 
@@ -32,6 +33,17 @@ export class MemStorage implements IStorage {
     const user: User = { ...insertUser, password: hashedPassword, id };
     this.users.set(id, user);
     return user;
+  }
+
+  async validatePassword(user: User, plainPassword: string): Promise<boolean> {
+    return bcrypt.compare(plainPassword, user.password);
+  }
+
+  async seedUser(username: string, plainPassword: string): Promise<void> {
+    const existing = await this.getUserByUsername(username);
+    if (!existing) {
+      await this.createUser({ username, password: plainPassword });
+    }
   }
 }
 

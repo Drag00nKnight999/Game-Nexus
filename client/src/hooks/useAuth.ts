@@ -4,46 +4,69 @@ export function useAuth() {
   const [username, setUsername] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [rank, setRank] = useState<string>("user");
-  const [loadingRank, setLoadingRank] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedUsername = localStorage.getItem("gameNexusUsername");
-    if (savedUsername) {
-      setUsername(savedUsername);
-      setIsLoggedIn(true);
-      fetchUserRank(savedUsername);
-    }
+    fetch("/api/auth/me")
+      .then((res) => {
+        if (res.ok) return res.json();
+        return null;
+      })
+      .then((data) => {
+        if (data?.username) {
+          setUsername(data.username);
+          setIsLoggedIn(true);
+          setRank(data.rank || "user");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  const fetchUserRank = async (username: string) => {
-    setLoadingRank(true);
+  const login = async (usernameInput: string, password: string): Promise<{ error?: string }> => {
     try {
-      const response = await fetch(`/api/user/rank/${encodeURIComponent(username)}`);
-      if (response.ok) {
-        const data = await response.json();
-        setRank(data.rank);
-      }
-    } catch (err) {
-      console.error("Failed to fetch user rank:", err);
-    } finally {
-      setLoadingRank(false);
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: usernameInput, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { error: data.error || "Login failed" };
+      setUsername(data.username);
+      setIsLoggedIn(true);
+      setRank(data.rank || "user");
+      return {};
+    } catch {
+      return { error: "Network error. Please try again." };
     }
   };
 
-  const login = (newUsername: string) => {
-    localStorage.setItem("gameNexusUsername", newUsername);
-    setUsername(newUsername);
-    setIsLoggedIn(true);
-    fetchUserRank(newUsername);
+  const register = async (usernameInput: string, password: string): Promise<{ error?: string }> => {
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: usernameInput, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { error: data.error || "Registration failed" };
+      setUsername(data.username);
+      setIsLoggedIn(true);
+      setRank(data.rank || "user");
+      return {};
+    } catch {
+      return { error: "Network error. Please try again." };
+    }
   };
 
-  const logout = () => {
-    localStorage.removeItem("gameNexusUsername");
-    localStorage.removeItem("chatUsername");
+  const logout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
     setUsername(null);
     setIsLoggedIn(false);
     setRank("user");
   };
 
-  return { username, isLoggedIn, rank, loadingRank, login, logout };
+  return { username, isLoggedIn, rank, loading, login, register, logout };
 }

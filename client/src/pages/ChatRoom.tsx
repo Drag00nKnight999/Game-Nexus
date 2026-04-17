@@ -78,7 +78,7 @@ export default function ChatRoom() {
       const response = await fetch("/api/chat/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, text: inputText }),
+        body: JSON.stringify({ text: inputText }),
       });
 
       if (response.ok) {
@@ -95,8 +95,8 @@ export default function ChatRoom() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/");
   };
 
