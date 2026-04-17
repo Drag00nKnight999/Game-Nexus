@@ -1,17 +1,41 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext, createContext, useRef } from "react";
+
+interface AuthState {
+  username: string | null;
+  isLoggedIn: boolean;
+  rank: string;
+  loading: boolean;
+  login: (username: string, password: string) => Promise<{ error?: string }>;
+  register: (username: string, password: string) => Promise<{ error?: string }>;
+  logout: () => Promise<void>;
+}
+
+export const AuthContext = createContext<AuthState>({
+  username: null,
+  isLoggedIn: false,
+  rank: "user",
+  loading: true,
+  login: async () => ({}),
+  register: async () => ({}),
+  logout: async () => {},
+});
 
 export function useAuth() {
+  return useContext(AuthContext);
+}
+
+export function useAuthProvider(): AuthState {
   const [username, setUsername] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [rank, setRank] = useState<string>("user");
   const [loading, setLoading] = useState(true);
+  const initialized = useRef(false);
 
   useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
     fetch("/api/auth/me")
-      .then((res) => {
-        if (res.ok) return res.json();
-        return null;
-      })
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.username) {
           setUsername(data.username);
