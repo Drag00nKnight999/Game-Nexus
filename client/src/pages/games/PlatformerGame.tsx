@@ -1,10 +1,42 @@
-import { Suspense, useRef, useState, useEffect, useMemo, useCallback } from "react";
+import { Suspense, useRef, useState, useEffect, useMemo, useCallback, Component } from "react";
+import type { ReactNode, ErrorInfo } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { KeyboardControls, useKeyboardControls } from "@react-three/drei";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Info, Volume2, VolumeX, RotateCcw } from "lucide-react";
 import { useAudio } from "@/lib/stores/useAudio";
 import * as THREE from "three";
+
+class CanvasErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; message: string }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error.message };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("3D canvas error:", error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-center p-8">
+          <div className="text-5xl mb-4">🎮</div>
+          <h2 className="text-xl font-bold text-red-400 mb-2">3D Rendering Unavailable</h2>
+          <p className="text-gray-400 max-w-sm">
+            Your browser or environment does not support WebGL, which is required for the Platformer game.
+            Try opening the app in a modern desktop browser.
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 enum Controls {
   left = "left",
@@ -258,10 +290,11 @@ function Game3DCanvas({
   playSuccess: () => void;
 }) {
   return (
-    <Canvas
-      camera={{ position: [0, 3, 12], fov: 50 }}
-      style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
-    >
+    <CanvasErrorBoundary>
+      <Canvas
+        camera={{ position: [0, 3, 12], fov: 50 }}
+        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
+      >
       <Suspense fallback={null}>
         <GameScene
           onCoinCollect={onCoinCollect}
@@ -275,6 +308,7 @@ function Game3DCanvas({
         />
       </Suspense>
     </Canvas>
+    </CanvasErrorBoundary>
   );
 }
 
@@ -440,7 +474,7 @@ export default function PlatformerGame() {
               <h2 className="text-2xl font-bold text-yellow-400 mb-2">You Win!</h2>
               <p className="text-gray-300 mb-2">All coins collected!</p>
               <p className="text-white mb-4">Final Score: {score}</p>
-              {score >= highScore && (
+              {score > 0 && score >= highScore && (
                 <p className="text-green-400 mb-4">New High Score!</p>
               )}
               <button

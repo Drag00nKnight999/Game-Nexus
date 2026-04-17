@@ -40,14 +40,12 @@ export default function ChatRoom() {
   }, []);
 
   const checkBanStatus = async () => {
+    if (!username) return;
     try {
-      const response = await fetch("/api/admin/banned-users");
+      const response = await fetch(`/api/user/banned/${encodeURIComponent(username)}`);
       if (response.ok) {
         const data = await response.json();
-        const banned = data.bannedUsers.find(
-          (u: any) => u.username.toLowerCase() === username?.toLowerCase()
-        );
-        if (banned) {
+        if (data.isBanned) {
           setIsBanned(true);
         }
       }
@@ -74,7 +72,7 @@ export default function ChatRoom() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !username.trim()) return;
+    if (!inputText.trim() || !username?.trim()) return;
 
     try {
       const response = await fetch("/api/chat/messages", {

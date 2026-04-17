@@ -123,6 +123,13 @@ export async function registerRoutes(
     res.json({ username, rank });
   });
 
+  app.get("/api/user/banned/:username", (req: Request, res: Response) => {
+    const { username } = req.params;
+    const normalizedUsername = username.toLowerCase();
+    const isBanned = bannedUsers.has(normalizedUsername);
+    res.json({ username, isBanned });
+  });
+
   app.get("/api/admin/stats", (req: Request, res: Response) => {
     if (!isAuthenticated(req)) {
       return res.status(401).json({ error: "Not authenticated" });
