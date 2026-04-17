@@ -200,6 +200,15 @@ export async function registerRoutes(
     res.json({ username, rank });
   });
 
+  app.get("/api/profile/:username", async (req: Request, res: Response) => {
+    const { username } = req.params;
+    const user = await storage.getUserByUsername(username);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const rank = getUserRank(user.username);
+    const joinedAt = storage.getUserJoinDate(user.id);
+    return res.json({ username: user.username, rank, joinedAt });
+  });
+
   app.get("/api/user/banned/:username", (req: Request, res: Response) => {
     const { username } = req.params;
     const normalizedUsername = username.toLowerCase();
@@ -406,6 +415,18 @@ export async function registerRoutes(
     res.json({ messages: chatMessages });
   });
 
+  app.delete("/api/chat/messages/:messageId", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    if (!isAdmin(session.username)) return res.status(403).json({ error: "Developer or admin access required" });
+    const { messageId } = req.params;
+    const idx = chatMessages.findIndex((m) => m.id === messageId);
+    if (idx === -1) return res.status(404).json({ error: "Message not found" });
+    chatMessages.splice(idx, 1);
+    logAuditAction("delete_chat_message", { messageId, deletedBy: session.username });
+    return res.json({ success: true });
+  });
+
   app.get("/api/admin/chat/users", (req: Request, res: Response) => {
     if (!isAuthenticated(req)) {
       return res.status(401).json({ error: "Not authenticated" });
@@ -453,6 +474,7 @@ export async function registerRoutes(
     const message = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
       username,
+      rank: getUserRank(username),
       text,
       timestamp: new Date().toISOString(),
       flagged,

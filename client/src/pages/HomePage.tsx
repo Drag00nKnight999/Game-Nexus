@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Gamepad2, Brain, Box, Blocks, Search, X, LogOut } from "lucide-react";
+import { Gamepad2, Brain, Box, Blocks, Search, X, LogOut, Code2, Shield } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
 interface GameCardProps {
@@ -102,9 +102,28 @@ export default function HomePage() {
           <div className="flex items-center gap-4">
             {isLoggedIn ? (
               <>
-                <span className="text-gray-300 text-sm">
-                  Welcome, <span className="text-purple-400 font-medium">{username}</span>
-                  {rank !== "user" && <span className="ml-2 text-yellow-400 text-xs">({rank === "developer" ? "🧑‍💻 Developer 🧑‍💻" : rank === "admin" ? "Admin" : rank})</span>}
+                <span className="text-gray-400 text-sm flex items-center gap-2 flex-wrap">
+                  Welcome,{" "}
+                  <Link
+                    to={`/profile/${encodeURIComponent(username || "")}`}
+                    className="inline-flex items-center gap-1.5 hover:underline"
+                  >
+                    <span className={rank === "developer" ? "text-purple-400 font-medium" : rank === "admin" ? "text-yellow-400 font-medium" : "text-white font-medium"}>
+                      {username}
+                    </span>
+                    {rank === "developer" && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-semibold">
+                        <Code2 size={10} />
+                        DEV
+                      </span>
+                    )}
+                    {rank === "admin" && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-600/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+                        <Shield size={10} />
+                        ADMIN
+                      </span>
+                    )}
+                  </Link>
                 </span>
                 <button
                   onClick={handleLogout}
@@ -193,8 +212,15 @@ export default function HomePage() {
       </main>
 
       <footer className="py-6 border-t border-gray-800">
-        <div className="max-w-6xl mx-auto px-4 text-center text-gray-500 text-sm">
-          GameNexus - Play, Have Fun, Repeat
+        <div className="max-w-6xl mx-auto px-4 text-center space-y-3">
+          <p className="text-gray-500 text-sm">GameNexus - Play, Have Fun, Repeat</p>
+          <div className="flex flex-wrap justify-center gap-4 text-gray-600 text-xs">
+            <Link to="/privacy" className="hover:text-gray-400 transition-colors">Privacy Policy</Link>
+            <span>·</span>
+            <Link to="/terms" className="hover:text-gray-400 transition-colors">Terms of Use</Link>
+            <span>·</span>
+            <Link to="/guidelines" className="hover:text-gray-400 transition-colors">Community Guidelines</Link>
+          </div>
         </div>
       </footer>
     </div>

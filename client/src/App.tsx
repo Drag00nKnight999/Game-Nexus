@@ -13,6 +13,10 @@ import BloxdGame from "./pages/games/BloxdGame";
 import AdminLogin from "./pages/AdminLogin";
 import AdminPanel from "./pages/AdminPanel";
 import ChatRoom from "./pages/ChatRoom";
+import PlayerProfile from "./pages/PlayerProfile";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsOfUse from "./pages/TermsOfUse";
+import CommunityGuidelines from "./pages/CommunityGuidelines";
 import NotFound from "./pages/not-found";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -35,6 +39,10 @@ function AppRoutes() {
       <Route path="/chat" element={<ProtectedRoute><ChatRoom /></ProtectedRoute>} />
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+      <Route path="/profile/:username" element={<PlayerProfile />} />
+      <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/terms" element={<TermsOfUse />} />
+      <Route path="/guidelines" element={<CommunityGuidelines />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

@@ -5,14 +5,17 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  getUserJoinDate(id: number): string;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<number, User>;
+  private joinDates: Map<number, string>;
   currentId: number;
 
   constructor() {
     this.users = new Map();
+    this.joinDates = new Map();
     this.currentId = 1;
   }
 
@@ -32,6 +35,7 @@ export class MemStorage implements IStorage {
     const hashedPassword = await bcrypt.hash(insertUser.password, 10);
     const user: User = { ...insertUser, password: hashedPassword, id };
     this.users.set(id, user);
+    this.joinDates.set(id, new Date().toISOString());
     return user;
   }
 
@@ -44,6 +48,10 @@ export class MemStorage implements IStorage {
     if (!existing) {
       await this.createUser({ username, password: plainPassword });
     }
+  }
+
+  getUserJoinDate(id: number): string {
+    return this.joinDates.get(id) || new Date().toISOString();
   }
 }
 

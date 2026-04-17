@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, ArrowLeft, Flag, X, LogOut } from "lucide-react";
+import { Send, ArrowLeft, Flag, X, LogOut, Trash2, Code2, Shield } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 
 interface Message {
   id: string;
   username: string;
+  rank?: string;
   text: string;
   timestamp: string;
   flagged: boolean;
@@ -13,12 +14,29 @@ interface Message {
   reportCount?: number;
 }
 
-interface Report {
-  id: string;
-  messageId: string;
-  username: string;
-  reason: string;
-  timestamp: string;
+function UsernameBadge({ username, rank }: { username: string; rank?: string }) {
+  return (
+    <Link
+      to={`/profile/${encodeURIComponent(username)}`}
+      className="inline-flex items-center gap-1.5 group/user"
+    >
+      <span className={`font-semibold group-hover/user:underline ${rank === "developer" ? "text-purple-300" : rank === "admin" ? "text-yellow-300" : "text-white"}`}>
+        {username}
+      </span>
+      {rank === "developer" && (
+        <span title="GameNexus Developer" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-semibold">
+          <Code2 size={10} />
+          DEV
+        </span>
+      )}
+      {rank === "admin" && (
+        <span title="GameNexus Admin" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-600/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+          <Shield size={10} />
+          ADMIN
+        </span>
+      )}
+    </Link>
+  );
 }
 
 export default function ChatRoom() {
@@ -30,8 +48,10 @@ export default function ChatRoom() {
   const [reportedMessages, setReportedMessages] = useState<Set<string>>(new Set());
   const [isBanned, setIsBanned] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { username, logout } = useAuth();
+  const { username, rank, logout } = useAuth();
   const navigate = useNavigate();
+
+  const canModerate = rank === "developer" || rank === "admin";
 
   useEffect(() => {
     fetchMessages();
@@ -45,9 +65,7 @@ export default function ChatRoom() {
       const response = await fetch(`/api/user/banned/${encodeURIComponent(username)}`);
       if (response.ok) {
         const data = await response.json();
-        if (data.isBanned) {
-          setIsBanned(true);
-        }
+        if (data.isBanned) setIsBanned(true);
       }
     } catch (err) {
       console.error("Failed to check ban status:", err);
@@ -92,6 +110,20 @@ export default function ChatRoom() {
       }
     } catch (err) {
       console.error("Failed to send message:", err);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!confirm("Delete this message?")) return;
+    try {
+      const response = await fetch(`/api/chat/messages/${messageId}`, { method: "DELETE" });
+      if (response.ok) {
+        setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      } else {
+        alert("Failed to delete message");
+      }
+    } catch (err) {
+      console.error("Failed to delete message:", err);
     }
   };
 
@@ -167,9 +199,29 @@ export default function ChatRoom() {
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <h1 className="text-2xl font-bold text-white">GameNexus Chat</h1>
           <div className="flex items-center gap-4">
-            <span className="text-gray-400">
-              Welcome, <span className="text-purple-400">{username}</span>
-            </span>
+            <div className="flex items-center gap-2 text-gray-400 text-sm">
+              Welcome,{" "}
+              <Link
+                to={`/profile/${encodeURIComponent(username || "")}`}
+                className="inline-flex items-center gap-1.5 hover:underline"
+              >
+                <span className={rank === "developer" ? "text-purple-400 font-medium" : rank === "admin" ? "text-yellow-400 font-medium" : "text-white font-medium"}>
+                  {username}
+                </span>
+                {rank === "developer" && (
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-semibold">
+                    <Code2 size={10} />
+                    DEV
+                  </span>
+                )}
+                {rank === "admin" && (
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-600/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+                    <Shield size={10} />
+                    ADMIN
+                  </span>
+                )}
+              </Link>
+            </div>
             <Link
               to="/"
               className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
@@ -208,12 +260,21 @@ export default function ChatRoom() {
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <h4 className="text-white font-medium">{msg.username}</h4>
+                    <UsernameBadge username={msg.username} rank={msg.rank} />
                     <p className={`mt-1 ${msg.flagged ? "text-red-300 line-through" : "text-gray-300"}`}>
                       {msg.text}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 ml-2">
+                    {canModerate && (
+                      <button
+                        onClick={() => handleDeleteMessage(msg.id)}
+                        className="p-1 text-gray-500 hover:text-red-400 transition-colors"
+                        title="Delete message (developer/admin)"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                     <button
                       onClick={() => setReportingMessageId(msg.id)}
                       className="p-1 text-gray-400 hover:text-orange-400 transition-colors"
@@ -289,13 +350,10 @@ export default function ChatRoom() {
               <Send size={20} />
             </button>
           </div>
+          {canModerate && (
+            <p className="text-xs text-purple-400/60 mt-2">You can delete any message as a {rank}.</p>
+          )}
         </form>
-
-        {isBanned && (
-          <div className="bg-red-500/20 border-t border-red-500/30 p-3">
-            <p className="text-red-300 text-sm text-center">⚠️ You have been banned from chat and cannot send messages.</p>
-          </div>
-        )}
       </main>
     </div>
   );
