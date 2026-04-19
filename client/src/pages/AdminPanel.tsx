@@ -32,6 +32,8 @@ interface GameVersion {
   uploadedAt: string;
   size: number;
   isActive: boolean;
+  filename?: string;
+  originalName?: string;
 }
 
 interface GameFile {
@@ -91,6 +93,8 @@ export default function AdminPanel() {
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
   const [newVersionGame, setNewVersionGame] = useState<string | null>(null);
   const [newVersionNum, setNewVersionNum] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<string>("");
   const [chatReports, setChatReports] = useState<ChatReport[]>([]);
   const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -261,25 +265,48 @@ export default function AdminPanel() {
     }
   };
 
-  const handleAddVersion = async (gameId: string) => {
-    if (!newVersionNum) return;
+  const handleUploadVersion = async (gameId: string) => {
+    if (!newVersionNum.trim()) {
+      alert("Please enter a version number.");
+      return;
+    }
+    if (!uploadFile) {
+      alert("Please select a file to upload.");
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress("Uploading...");
 
     try {
-      const response = await fetch(`/api/admin/games/${gameId}/version`, {
+      const formData = new FormData();
+      formData.append("file", uploadFile);
+      formData.append("versionNumber", newVersionNum.trim());
+
+      const response = await fetch(`/api/admin/games/${gameId}/upload`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ versionNumber: newVersionNum }),
+        body: formData,
       });
+
       if (response.ok) {
         const updated = await response.json();
-        setGameFiles(
-          gameFiles.map((g) => (g.id === gameId ? updated.game : g)),
-        );
+        setGameFiles(gameFiles.map((g) => (g.id === gameId ? updated.game : g)));
         setNewVersionNum("");
+        setUploadFile(null);
         setNewVersionGame(null);
+        setUploadProgress("");
+        alert(`Version ${newVersionNum} uploaded successfully!`);
+      } else {
+        const err = await response.json();
+        alert(err.error || "Upload failed");
+        setUploadProgress("");
       }
     } catch (err) {
-      console.error("Failed to add version:", err);
+      console.error("Upload failed:", err);
+      alert("Upload failed. Please try again.");
+      setUploadProgress("");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -545,34 +572,50 @@ export default function AdminPanel() {
                                         key={v.versionNumber}
                                         className="flex justify-between items-center bg-gray-700 px-3 py-2 rounded text-sm"
                                       >
-                                        <div>
-                                          <span className="text-white font-medium">
-                                            v{v.versionNumber}
-                                          </span>
-                                          {v.isActive && (
-                                            <span className="ml-2 px-2 py-1 bg-green-600/30 text-green-300 rounded text-xs">
-                                              Active
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-white font-medium">
+                                              v{v.versionNumber}
                                             </span>
-                                          )}
-                                          <p className="text-gray-400 text-xs mt-1">
-                                            {new Date(
-                                              v.uploadedAt,
-                                            ).toLocaleDateString()}
+                                            {v.isActive && (
+                                              <span className="px-2 py-0.5 bg-green-600/30 text-green-300 rounded text-xs">
+                                                Active
+                                              </span>
+                                            )}
+                                            {v.originalName && (
+                                              <span className="text-gray-400 text-xs truncate max-w-[140px]" title={v.originalName}>
+                                                📄 {v.originalName}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <p className="text-gray-500 text-xs mt-0.5">
+                                            {(v.size / 1024).toFixed(1)} KB · {new Date(v.uploadedAt).toLocaleDateString()}
                                           </p>
                                         </div>
-                                        {!v.isActive && (
-                                          <button
-                                            onClick={() =>
-                                              handleRollbackVersion(
-                                                game.id,
-                                                v.versionNumber,
-                                              )
-                                            }
-                                            className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs transition-colors"
-                                          >
-                                            Activate
-                                          </button>
-                                        )}
+                                        <div className="flex items-center gap-2 ml-2 shrink-0">
+                                          {v.filename && (
+                                            <a
+                                              href={`/api/admin/games/${game.id}/download/${v.filename}`}
+                                              className="px-2 py-1 bg-gray-600 hover:bg-gray-500 text-gray-300 rounded text-xs transition-colors"
+                                              title="Download file"
+                                            >
+                                              ⬇ Download
+                                            </a>
+                                          )}
+                                          {!v.isActive && (
+                                            <button
+                                              onClick={() =>
+                                                handleRollbackVersion(
+                                                  game.id,
+                                                  v.versionNumber,
+                                                )
+                                              }
+                                              className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs transition-colors"
+                                            >
+                                              Activate
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
@@ -580,32 +623,60 @@ export default function AdminPanel() {
 
                                 <div>
                                   <h5 className="text-sm font-medium text-gray-300 mb-2">
-                                    Add New Version
+                                    Upload New Version
                                   </h5>
                                   {newVersionGame === game.id ? (
-                                    <div className="space-y-2">
-                                      <input
-                                        type="text"
-                                        value={newVersionNum}
-                                        onChange={(e) =>
-                                          setNewVersionNum(e.target.value)
-                                        }
-                                        placeholder="e.g., 1.0.1"
-                                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 text-sm"
-                                      />
+                                    <div className="space-y-3">
+                                      <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Version Number</label>
+                                        <input
+                                          type="text"
+                                          value={newVersionNum}
+                                          onChange={(e) => setNewVersionNum(e.target.value)}
+                                          placeholder="e.g., 1.0.1"
+                                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 text-sm"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Game File</label>
+                                        <label className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors p-4 ${uploadFile ? "border-green-500 bg-green-500/10" : "border-gray-600 bg-gray-700 hover:border-purple-500 hover:bg-gray-700"}`}>
+                                          <div className="flex flex-col items-center gap-1 text-center">
+                                            {uploadFile ? (
+                                              <>
+                                                <Upload size={20} className="text-green-400" />
+                                                <p className="text-green-300 text-xs font-medium">{uploadFile.name}</p>
+                                                <p className="text-gray-400 text-xs">{(uploadFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Upload size={20} className="text-gray-400" />
+                                                <p className="text-gray-300 text-xs font-medium">Click to select file</p>
+                                                <p className="text-gray-500 text-xs">Any file type, up to 500 MB</p>
+                                              </>
+                                            )}
+                                          </div>
+                                          <input
+                                            type="file"
+                                            className="hidden"
+                                            onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                                          />
+                                        </label>
+                                      </div>
+                                      {uploadProgress && (
+                                        <p className="text-blue-400 text-xs text-center animate-pulse">{uploadProgress}</p>
+                                      )}
                                       <div className="flex gap-2">
                                         <button
-                                          onClick={() =>
-                                            handleAddVersion(game.id)
-                                          }
-                                          className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-500 text-white rounded text-sm transition-colors"
+                                          onClick={() => handleUploadVersion(game.id)}
+                                          disabled={uploading}
+                                          className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm transition-colors flex items-center justify-center gap-2"
                                         >
-                                          Create Version
+                                          <Upload size={14} />
+                                          {uploading ? "Uploading..." : "Upload"}
                                         </button>
                                         <button
-                                          onClick={() =>
-                                            setNewVersionGame(null)
-                                          }
+                                          onClick={() => { setNewVersionGame(null); setUploadFile(null); setNewVersionNum(""); }}
+                                          disabled={uploading}
                                           className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm transition-colors"
                                         >
                                           Cancel

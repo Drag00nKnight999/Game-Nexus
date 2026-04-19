@@ -1,7 +1,25 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import cookieParser from "cookie-parser";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { storage } from "./storage";
+
+const UPLOADS_DIR = path.join(process.cwd(), "uploads", "games");
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+    filename: (req, file, cb) => {
+      const gameId = (req.params as any).gameId || "unknown";
+      const ext = path.extname(file.originalname);
+      cb(null, `${gameId}_${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB max
+});
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -409,6 +427,49 @@ export async function registerRoutes(
 
     game.currentVersion = versionNumber;
     res.json({ game });
+  });
+
+  // Serve uploaded game files for download
+  app.get("/api/admin/games/:gameId/download/:filename", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const { filename } = req.params;
+    const filePath = path.join(UPLOADS_DIR, path.basename(filename));
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
+    res.download(filePath);
+  });
+
+  // Upload a real game file and register it as a new version
+  app.post("/api/admin/games/:gameId/upload", upload.single("file"), (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+
+    const { gameId } = req.params;
+    const { versionNumber } = req.body as { versionNumber?: string };
+
+    if (!versionNumber) {
+      if (req.file) fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: "Version number required" });
+    }
+
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    const game = games.get(gameId);
+    if (!game) {
+      fs.unlinkSync(req.file.path);
+      return res.status(404).json({ error: "Game not found" });
+    }
+
+    const newVersion = {
+      versionNumber,
+      uploadedAt: new Date().toISOString(),
+      size: req.file.size,
+      isActive: false,
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+    };
+
+    game.versions.push(newVersion);
+    logAuditAction("upload_game_file", { gameId, versionNumber, filename: req.file.filename, size: req.file.size });
+    return res.json({ game });
   });
 
   app.get("/api/chat/messages", (req: Request, res: Response) => {
