@@ -222,7 +222,7 @@ export async function registerRoutes(
     }
 
     const stats = {
-      totalUsers: 0,
+      totalUsers: storage.getUserCount(),
       totalGames: 4,
       totalPlays: 0,
     };

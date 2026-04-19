@@ -53,6 +53,10 @@ export class MemStorage implements IStorage {
   getUserJoinDate(id: number): string {
     return this.joinDates.get(id) || new Date().toISOString();
   }
+
+  getUserCount(): number {
+    return this.users.size;
+  }
 }
 
 export const storage = new MemStorage();
