@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, ArrowLeft, Flag, X, LogOut, Trash2, Code2, Shield } from "lucide-react";
+import { Send, ArrowLeft, Flag, X, LogOut, Trash2, Code2, Shield, Crown } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 
@@ -20,9 +20,15 @@ function UsernameBadge({ username, rank }: { username: string; rank?: string }) 
       to={`/profile/${encodeURIComponent(username)}`}
       className="inline-flex items-center gap-1.5 group/user"
     >
-      <span className={`font-semibold group-hover/user:underline ${rank === "developer" ? "text-purple-300" : rank === "admin" ? "text-yellow-300" : "text-white"}`}>
+      <span className={`font-semibold group-hover/user:underline ${rank === "owner" ? "text-yellow-300" : rank === "developer" ? "text-purple-300" : rank === "admin" ? "text-orange-300" : "text-white"}`}>
         {username}
       </span>
+      {rank === "owner" && (
+        <span title="GameNexus Owner" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+          <Crown size={10} />
+          OWNER
+        </span>
+      )}
       {rank === "developer" && (
         <span title="GameNexus Developer" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-semibold">
           <Code2 size={10} />
@@ -30,7 +36,7 @@ function UsernameBadge({ username, rank }: { username: string; rank?: string }) 
         </span>
       )}
       {rank === "admin" && (
-        <span title="GameNexus Admin" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-600/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+        <span title="GameNexus Admin" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs font-semibold">
           <Shield size={10} />
           ADMIN
         </span>
@@ -51,7 +57,7 @@ export default function ChatRoom() {
   const { username, rank, logout } = useAuth();
   const navigate = useNavigate();
 
-  const canModerate = rank === "developer" || rank === "admin";
+  const canModerate = rank === "owner" || rank === "developer" || rank === "admin";
 
   useEffect(() => {
     fetchMessages();
@@ -205,9 +211,15 @@ export default function ChatRoom() {
                 to={`/profile/${encodeURIComponent(username || "")}`}
                 className="inline-flex items-center gap-1.5 hover:underline"
               >
-                <span className={rank === "developer" ? "text-purple-400 font-medium" : rank === "admin" ? "text-yellow-400 font-medium" : "text-white font-medium"}>
+                <span className={rank === "owner" ? "text-yellow-300 font-medium" : rank === "developer" ? "text-purple-400 font-medium" : rank === "admin" ? "text-orange-400 font-medium" : "text-white font-medium"}>
                   {username}
                 </span>
+                {rank === "owner" && (
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+                    <Crown size={10} />
+                    OWNER
+                  </span>
+                )}
                 {rank === "developer" && (
                   <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-semibold">
                     <Code2 size={10} />
@@ -215,7 +227,7 @@ export default function ChatRoom() {
                   </span>
                 )}
                 {rank === "admin" && (
-                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-600/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs font-semibold">
                     <Shield size={10} />
                     ADMIN
                   </span>

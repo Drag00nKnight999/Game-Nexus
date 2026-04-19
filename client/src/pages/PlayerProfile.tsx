@@ -1,15 +1,26 @@
 import { useState, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, User, Calendar, Shield, Code2, Crown } from "lucide-react";
-import { useAuth } from "../hooks/useAuth";
+import { ArrowLeft, User, Calendar, Shield, Code2, Crown, Zap, Globe } from "lucide-react";
 
 interface ProfileData {
   username: string;
   rank: string;
   joinedAt: string;
+  bio?: string;
+  avatarColor?: string;
+  isPremium?: boolean;
+  publicGameCount?: number;
 }
 
 function RankBadge({ rank }: { rank: string }) {
+  if (rank === "owner") {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-sm font-medium">
+        <Crown size={14} />
+        Owner
+      </span>
+    );
+  }
   if (rank === "developer") {
     return (
       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-600/20 border border-purple-500/50 text-purple-300 text-sm font-medium">
@@ -20,7 +31,7 @@ function RankBadge({ rank }: { rank: string }) {
   }
   if (rank === "admin") {
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 text-sm font-medium">
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/20 border border-orange-500/40 text-orange-300 text-sm font-medium">
         <Shield size={14} />
         Admin
       </span>
@@ -34,23 +45,8 @@ function RankBadge({ rank }: { rank: string }) {
   );
 }
 
-function AvatarPlaceholder({ username, rank }: { username: string; rank: string }) {
-  const colors: Record<string, string> = {
-    developer: "from-purple-600 to-indigo-700",
-    admin: "from-yellow-600 to-orange-700",
-    user: "from-gray-600 to-gray-700",
-  };
-  const color = colors[rank] || colors.user;
-  return (
-    <div className={`w-24 h-24 rounded-full bg-gradient-to-br ${color} flex items-center justify-center text-white text-4xl font-bold shadow-xl`}>
-      {username.charAt(0).toUpperCase()}
-    </div>
-  );
-}
-
 export default function PlayerProfile() {
   const { username } = useParams<{ username: string }>();
-  const { rank: myRank } = useAuth();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -92,13 +88,10 @@ export default function PlayerProfile() {
   }
 
   const joinedDate = new Date(profile.joinedAt).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
+    year: "numeric", month: "long", day: "numeric",
   });
 
-  const isDeveloper = profile.rank === "developer";
-  const isAdmin = profile.rank === "admin" || profile.rank === "developer";
+  const avatarBg = profile.avatarColor || "#818cf8";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
@@ -115,53 +108,84 @@ export default function PlayerProfile() {
       <main className="max-w-3xl mx-auto px-4 py-10 space-y-6">
         <div className="bg-gray-800 border border-gray-700 rounded-2xl p-8">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-            <AvatarPlaceholder username={profile.username} rank={profile.rank} />
+            <div
+              className="w-24 h-24 rounded-full flex items-center justify-center text-white text-4xl font-bold shadow-xl flex-shrink-0"
+              style={{ backgroundColor: avatarBg }}
+            >
+              {profile.username.charAt(0).toUpperCase()}
+            </div>
             <div className="text-center sm:text-left space-y-3 flex-1">
-              <div>
-                <div className="flex flex-col sm:flex-row items-center sm:items-center gap-3">
-                  <h2 className="text-3xl font-bold text-white">{profile.username}</h2>
-                  {isDeveloper && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-600/30 border border-purple-500/40 rounded text-purple-300 text-xs font-semibold tracking-wide">
-                      <Code2 size={11} />
-                      DEVELOPER
-                    </span>
-                  )}
-                </div>
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 flex-wrap">
+                <h2 className="text-3xl font-bold text-white">{profile.username}</h2>
+                {profile.rank === "owner" && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/40 rounded text-yellow-300 text-xs font-semibold">
+                    <Crown size={11} />
+                    OWNER
+                  </span>
+                )}
+                {profile.rank === "developer" && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-600/30 border border-purple-500/40 rounded text-purple-300 text-xs font-semibold">
+                    <Code2 size={11} />
+                    DEV
+                  </span>
+                )}
+                {profile.isPremium && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/40 rounded text-yellow-300 text-xs font-semibold">
+                    <Zap size={10} />
+                    Premium
+                  </span>
+                )}
               </div>
               <RankBadge rank={profile.rank} />
+              {profile.bio && (
+                <p className="text-gray-300 text-sm">{profile.bio}</p>
+              )}
               <div className="flex items-center gap-2 text-gray-400 text-sm justify-center sm:justify-start">
                 <Calendar size={15} />
                 <span>Joined {joinedDate}</span>
               </div>
+              {typeof profile.publicGameCount === "number" && profile.publicGameCount > 0 && (
+                <div className="flex items-center gap-2 text-gray-400 text-sm justify-center sm:justify-start">
+                  <Globe size={15} />
+                  <span>{profile.publicGameCount} public game{profile.publicGameCount !== 1 ? "s" : ""} published</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {isDeveloper && (
+        {profile.rank === "owner" && (
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-5 space-y-2">
+            <div className="flex items-center gap-2">
+              <Crown size={18} className="text-yellow-400" />
+              <h3 className="text-yellow-300 font-semibold">Platform Owner</h3>
+            </div>
+            <p className="text-gray-400 text-sm">This user is the founder and owner of GameNexus. They have the highest level of platform access and built this community from the ground up.</p>
+          </div>
+        )}
+
+        {profile.rank === "developer" && (
           <div className="bg-purple-600/10 border border-purple-500/30 rounded-xl p-5 space-y-2">
             <div className="flex items-center gap-2">
               <Code2 size={18} className="text-purple-400" />
               <h3 className="text-purple-300 font-semibold">Platform Developer</h3>
             </div>
-            <p className="text-gray-400 text-sm">This user is one of the developers of GameNexus. They have full platform access, can moderate the community chat, and manage the admin panel.</p>
+            <p className="text-gray-400 text-sm">This user is one of the developers of GameNexus. They have full platform access and can moderate the community chat and admin panel.</p>
           </div>
         )}
 
-        {isAdmin && !isDeveloper && (
-          <div className="bg-yellow-600/10 border border-yellow-500/30 rounded-xl p-5 space-y-2">
+        {profile.rank === "admin" && (
+          <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-5 space-y-2">
             <div className="flex items-center gap-2">
-              <Shield size={18} className="text-yellow-400" />
-              <h3 className="text-yellow-300 font-semibold">Platform Administrator</h3>
+              <Shield size={18} className="text-orange-400" />
+              <h3 className="text-orange-300 font-semibold">Platform Administrator</h3>
             </div>
             <p className="text-gray-400 text-sm">This user is a GameNexus administrator. They help moderate the community and keep the platform safe for all players.</p>
           </div>
         )}
 
         <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6">
-          <h3 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
-            <Crown size={18} className="text-yellow-400" />
-            Games
-          </h3>
+          <h3 className="text-white font-semibold text-lg mb-4">Platform Games</h3>
           <div className="grid grid-cols-2 gap-3">
             {[
               { name: "Snake", color: "from-green-600 to-emerald-700", path: "/games/snake" },

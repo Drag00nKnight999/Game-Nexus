@@ -17,6 +17,10 @@ import PlayerProfile from "./pages/PlayerProfile";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsOfUse from "./pages/TermsOfUse";
 import CommunityGuidelines from "./pages/CommunityGuidelines";
+import Dashboard from "./pages/Dashboard";
+import GameEditor from "./pages/GameEditor";
+import SharedGame from "./pages/SharedGame";
+import AccountSettings from "./pages/AccountSettings";
 import NotFound from "./pages/not-found";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -43,6 +47,11 @@ function AppRoutes() {
       <Route path="/privacy" element={<PrivacyPolicy />} />
       <Route path="/terms" element={<TermsOfUse />} />
       <Route path="/guidelines" element={<CommunityGuidelines />} />
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/editor" element={<ProtectedRoute><GameEditor /></ProtectedRoute>} />
+      <Route path="/editor/:gameId" element={<ProtectedRoute><GameEditor /></ProtectedRoute>} />
+      <Route path="/play/:gameId" element={<SharedGame />} />
+      <Route path="/settings" element={<ProtectedRoute><AccountSettings /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

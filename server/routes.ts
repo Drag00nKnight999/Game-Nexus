@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import OpenAI from "openai";
 import { storage } from "./storage";
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads", "games");
@@ -44,9 +45,9 @@ function getUserSession(req: Request): { userId: number; username: string } | nu
   return { userId: session.userId, username: session.username };
 }
 
-// Rank system: "developer" > "admin" > "user"
+// Rank system: "owner" > "developer" > "admin" > "user"
 const userRanks: Map<string, string> = new Map([
-  ["drag00nknightofficial", "developer"], // Developer rank for the site creator
+  ["drag00nknightofficial", "owner"], // Owner rank for the site creator
 ]);
 
 // Rate limiting for sensitive operations
@@ -84,7 +85,7 @@ function getUserRank(username: string): string {
 
 function isAdmin(username: string): boolean {
   const rank = getUserRank(username);
-  return rank === "developer" || rank === "admin";
+  return rank === "owner" || rank === "developer" || rank === "admin";
 }
 
 function checkRateLimit(identifier: string): boolean {
@@ -120,6 +121,29 @@ function requireAdminRank(req: Request, res: Response, username: string): boolea
     return false;
   }
   return true;
+}
+
+function getTemplateResponse(prompt: string, engineType: string, _code: string): string {
+  const p = prompt.toLowerCase();
+  if (p.includes("enemy") || p.includes("npc")) {
+    return `To add an enemy, create an object with position and movement logic:\n\n\`\`\`js\nconst enemy = { x: 100, y: 100, w: 30, h: 30, speed: 2, color: '#ef4444' };\nfunction updateEnemy() {\n  // Move toward player\n  const dx = player.x - enemy.x;\n  const dy = player.y - enemy.y;\n  const dist = Math.sqrt(dx*dx + dy*dy);\n  enemy.x += (dx/dist) * enemy.speed;\n  enemy.y += (dy/dist) * enemy.speed;\n}\n\`\`\`\nCall \`updateEnemy()\` in your update loop.`;
+  }
+  if (p.includes("score") || p.includes("point")) {
+    return `Add a score system:\n\n\`\`\`js\nlet score = 0;\n// Draw score\nctx.fillStyle = '#fff';\nctx.font = 'bold 20px monospace';\nctx.fillText('Score: ' + score, 10, 30);\n// Increase score on collision\nscore += 10;\n\`\`\``;
+  }
+  if (p.includes("jump") || p.includes("gravity")) {
+    return `Add jumping with gravity:\n\n\`\`\`js\nlet vy = 0;\nconst gravity = 0.5;\nconst jumpForce = -12;\nconst ground = canvas.height - 60;\n// In update:\nvy += gravity;\nplayer.y += vy;\nif (player.y >= ground) { player.y = ground; vy = 0; }\nif (keys['Space'] && player.y === ground) vy = jumpForce;\n\`\`\``;
+  }
+  if (p.includes("color") || p.includes("background")) {
+    return `Change colors by editing the fill style values:\n\n\`\`\`js\nctx.fillStyle = '#1e1b4b'; // Dark indigo background\nctx.fillRect(0, 0, canvas.width, canvas.height);\nplayer.color = '#22d3ee'; // Cyan player\n\`\`\`\nUse hex codes like #ff0000 for red, #00ff00 for green.`;
+  }
+  if (p.includes("bullet") || p.includes("shoot")) {
+    return `Add a shooting mechanic:\n\n\`\`\`js\nconst bullets = [];\ndocument.addEventListener('keydown', e => {\n  if (e.code === 'Space') {\n    bullets.push({ x: player.x + player.w/2, y: player.y, speed: 8 });\n  }\n});\nfunction updateBullets() {\n  bullets.forEach(b => b.y -= b.speed);\n  bullets.filter(b => b.y > 0); // Remove off-screen\n}\nfunction drawBullets() {\n  bullets.forEach(b => {\n    ctx.fillStyle = '#fbbf24';\n    ctx.fillRect(b.x - 3, b.y, 6, 12);\n  });\n}\n\`\`\``;
+  }
+  if (engineType === "3d" && (p.includes("light") || p.includes("shadow"))) {
+    return `Add lighting to your Three.js scene:\n\n\`\`\`js\n// Ambient light (global illumination)\nconst ambient = new THREE.AmbientLight(0x404040, 0.5);\nscene.add(ambient);\n// Directional light (like sunlight)\nconst sun = new THREE.DirectionalLight(0xffffff, 1);\nsun.position.set(10, 20, 10);\nsun.castShadow = true;\nscene.add(sun);\n// Enable shadows on renderer\nrenderer.shadowMap.enabled = true;\n\`\`\``;
+  }
+  return `To help with "${prompt}", try breaking it down:\n1. Define the game object (position, size, color)\n2. Add update logic in your game loop\n3. Draw it in your render function\n\nFor more specific help, describe exactly what behavior you want, e.g. "make the player stop at the edges" or "add a red enemy that moves left and right".`;
 }
 
 export async function registerRoutes(
@@ -183,7 +207,8 @@ export async function registerRoutes(
   app.get("/api/auth/me", (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    return res.json({ username: session.username, rank: getUserRank(session.username) });
+    const profile = storage.getProfile(session.userId);
+    return res.json({ username: session.username, rank: getUserRank(session.username), isPremium: profile.isPremium });
   });
 
   app.post("/api/admin/login", (req: Request, res: Response) => {
@@ -224,7 +249,17 @@ export async function registerRoutes(
     if (!user) return res.status(404).json({ error: "User not found" });
     const rank = getUserRank(user.username);
     const joinedAt = storage.getUserJoinDate(user.id);
-    return res.json({ username: user.username, rank, joinedAt });
+    const profile = storage.getProfile(user.id);
+    const publicGames = storage.getGamesByUser(user.id).filter((g) => g.isPublic);
+    return res.json({
+      username: user.username,
+      rank,
+      joinedAt,
+      bio: profile.bio,
+      avatarColor: profile.avatarColor,
+      isPremium: profile.isPremium,
+      publicGameCount: publicGames.length,
+    });
   });
 
   app.get("/api/user/banned/:username", (req: Request, res: Response) => {
@@ -585,6 +620,178 @@ export async function registerRoutes(
     message.reportCount = (message.reportCount || 0) + 1;
 
     res.json({ report });
+  });
+
+  // ── Profile / Settings ────────────────────────────────────────────────
+  app.get("/api/settings", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const profile = storage.getProfile(session.userId);
+    return res.json(profile);
+  });
+
+  app.put("/api/settings", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const { bio, avatarColor } = req.body;
+    const updates: any = {};
+    if (typeof bio === "string") updates.bio = bio.slice(0, 300);
+    if (typeof avatarColor === "string" && /^#[0-9a-fA-F]{6}$/.test(avatarColor)) updates.avatarColor = avatarColor;
+    const profile = storage.updateProfile(session.userId, updates);
+    return res.json(profile);
+  });
+
+  // ── User-created Games ─────────────────────────────────────────────────
+  app.post("/api/games", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const { title, description, engineType, code } = req.body;
+    if (!title || !engineType) return res.status(400).json({ error: "Title and engine type required" });
+    if (!["2d", "2.5d", "3d"].includes(engineType)) return res.status(400).json({ error: "Invalid engine type" });
+    const game = storage.createGame({
+      title: String(title).slice(0, 60),
+      description: String(description || "").slice(0, 300),
+      engineType,
+      code: String(code || ""),
+      isPublic: false,
+      authorId: session.userId,
+      authorUsername: session.username,
+    });
+    logAuditAction("create_game", { gameId: game.id, title: game.title, author: session.username });
+    return res.json({ game });
+  });
+
+  app.get("/api/games/public", (_req: Request, res: Response) => {
+    const games = storage.getPublicGames().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return res.json({ games });
+  });
+
+  app.get("/api/games/my", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const games = storage.getGamesByUser(session.userId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return res.json({ games });
+  });
+
+  app.get("/api/games/:gameId", (req: Request, res: Response) => {
+    const game = storage.getGame(req.params.gameId);
+    if (!game) return res.status(404).json({ error: "Game not found" });
+    const session = getUserSession(req);
+    if (!game.isPublic && (!session || session.userId !== game.authorId) && !isAdmin(session?.username || "")) {
+      return res.status(403).json({ error: "Game is private" });
+    }
+    return res.json({ game });
+  });
+
+  app.put("/api/games/:gameId", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const game = storage.getGame(req.params.gameId);
+    if (!game) return res.status(404).json({ error: "Game not found" });
+    if (game.authorId !== session.userId && !isAdmin(session.username)) {
+      return res.status(403).json({ error: "Not your game" });
+    }
+    const { title, description, code } = req.body;
+    const updates: any = {};
+    if (typeof title === "string") updates.title = title.slice(0, 60);
+    if (typeof description === "string") updates.description = description.slice(0, 300);
+    if (typeof code === "string") updates.code = code;
+    const updated = storage.updateGame(req.params.gameId, updates);
+    return res.json({ game: updated });
+  });
+
+  app.post("/api/games/:gameId/publish", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const game = storage.getGame(req.params.gameId);
+    if (!game) return res.status(404).json({ error: "Game not found" });
+    if (game.authorId !== session.userId && !isAdmin(session.username)) {
+      return res.status(403).json({ error: "Not your game" });
+    }
+    const isPublic = req.body.isPublic !== false;
+    const updated = storage.updateGame(req.params.gameId, { isPublic });
+    // Grant premium on first publish
+    let premiumGranted = false;
+    if (isPublic) {
+      const profile = storage.getProfile(session.userId);
+      if (!profile.isPremium) {
+        storage.grantPremium(session.userId);
+        premiumGranted = true;
+        logAuditAction("premium_granted", { username: session.username, reason: "first_publish" });
+      }
+    }
+    return res.json({ game: updated, premiumGranted });
+  });
+
+  app.delete("/api/games/:gameId", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const game = storage.getGame(req.params.gameId);
+    if (!game) return res.status(404).json({ error: "Game not found" });
+    if (game.authorId !== session.userId && !isAdmin(session.username)) {
+      return res.status(403).json({ error: "Not your game" });
+    }
+    storage.deleteGame(req.params.gameId);
+    logAuditAction("delete_user_game", { gameId: req.params.gameId, title: game.title, by: session.username });
+    return res.json({ success: true });
+  });
+
+  // ── AI Game Assistant ─────────────────────────────────────────────────
+  const openai = process.env.OPENAI_API_KEY
+    ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    : null;
+
+  app.post("/api/ai/assist", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+
+    const allowed = storage.incrementAiUsage(session.userId);
+    if (!allowed) {
+      const profile = storage.getProfile(session.userId);
+      const limit = profile.isPremium ? 50 : 5;
+      return res.status(429).json({ error: `Daily AI limit reached (${limit}/day). ${!profile.isPremium ? "Publish a game to unlock Premium and get 50 requests/day!" : ""}` });
+    }
+
+    const { prompt, code, engineType } = req.body;
+    if (!prompt) return res.status(400).json({ error: "Prompt required" });
+
+    if (openai) {
+      try {
+        const systemPrompt = `You are a game development assistant for the GameNexus platform. You help users write HTML5 game code.
+The game engine is "${engineType}" (${engineType === "3d" ? "Three.js based" : engineType === "2.5d" ? "isometric canvas" : "2D canvas"}).
+The game code is a complete standalone HTML file. Keep responses concise and focused.
+When asked to add or modify code, return ONLY the complete updated HTML, no explanations.
+When asked a question, answer briefly and helpfully.`;
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Current code:\n\`\`\`html\n${code || "(no code yet)"}\n\`\`\`\n\nRequest: ${prompt}` },
+          ],
+          max_tokens: 2000,
+        });
+        const reply = completion.choices[0]?.message?.content || "I couldn't generate a response.";
+        return res.json({ reply, usedAI: true });
+      } catch (err: any) {
+        console.error("OpenAI error:", err.message);
+        // Fall through to template response
+      }
+    }
+
+    // Template-based fallback
+    const reply = getTemplateResponse(prompt, engineType, code);
+    return res.json({ reply, usedAI: false });
+  });
+
+  app.get("/api/ai/status", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const profile = storage.getProfile(session.userId);
+    const today = new Date().toDateString();
+    const usage = profile.aiUsageDate === today ? profile.aiUsageToday : 0;
+    const limit = profile.isPremium ? 50 : 5;
+    return res.json({ usage, limit, isPremium: profile.isPremium, hasOpenAI: !!openai });
   });
 
   app.get("/api/admin/audit-log", (req: Request, res: Response) => {

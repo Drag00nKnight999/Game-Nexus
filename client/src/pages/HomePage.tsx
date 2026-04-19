@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useState } from "react";
-import { Gamepad2, Brain, Box, Blocks, Search, X, LogOut, Code2, Shield } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Gamepad2, Brain, Box, Blocks, Search, X, LogOut, Code2, Shield, Crown, LayoutDashboard, Plus, Globe, Layers, Zap } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
 interface GameCardProps {
@@ -38,17 +38,34 @@ function GameCard({ title, description, icon, link, color }: GameCardProps) {
   );
 }
 
+interface CommunityGame {
+  id: string;
+  title: string;
+  description: string;
+  engineType: string;
+  authorUsername: string;
+  updatedAt: string;
+}
+
 export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const { isLoggedIn, username, logout, rank } = useAuth();
+  const { isLoggedIn, username, logout, rank, isPremium } = useAuth();
   const navigate = useNavigate();
+  const [communityGames, setCommunityGames] = useState<CommunityGame[]>([]);
+
+  useEffect(() => {
+    fetch("/api/games/public")
+      .then((r) => r.ok ? r.json() : { games: [] })
+      .then((d) => setCommunityGames((d.games || []).slice(0, 6)))
+      .catch(() => {});
+  }, []);
 
   const handleLogout = async () => {
     await logout();
     navigate("/");
   };
 
-  const isAdmin = rank === "developer" || rank === "admin";
+  const isAdmin = rank === "owner" || rank === "developer" || rank === "admin";
 
   const games = [
     {
@@ -108,9 +125,15 @@ export default function HomePage() {
                     to={`/profile/${encodeURIComponent(username || "")}`}
                     className="inline-flex items-center gap-1.5 hover:underline"
                   >
-                    <span className={rank === "developer" ? "text-purple-400 font-medium" : rank === "admin" ? "text-yellow-400 font-medium" : "text-white font-medium"}>
+                    <span className={rank === "owner" ? "text-yellow-300 font-medium" : rank === "developer" ? "text-purple-400 font-medium" : rank === "admin" ? "text-orange-400 font-medium" : "text-white font-medium"}>
                       {username}
                     </span>
+                    {rank === "owner" && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+                        <Crown size={10} />
+                        OWNER
+                      </span>
+                    )}
                     {rank === "developer" && (
                       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-semibold">
                         <Code2 size={10} />
@@ -118,13 +141,26 @@ export default function HomePage() {
                       </span>
                     )}
                     {rank === "admin" && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-600/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs font-semibold">
                         <Shield size={10} />
                         ADMIN
                       </span>
                     )}
+                    {isPremium && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
+                        <Zap size={10} />
+                        Premium
+                      </span>
+                    )}
                   </Link>
                 </span>
+                <Link
+                  to="/dashboard"
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors text-sm"
+                >
+                  <LayoutDashboard size={16} />
+                  Dashboard
+                </Link>
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
@@ -146,13 +182,22 @@ export default function HomePage() {
       </header>
 
       <main className="px-4 pb-12">
-        <div className="max-w-6xl mx-auto mb-8 flex gap-4">
+        <div className="max-w-6xl mx-auto mb-8 flex gap-3 flex-wrap">
           <Link
             to="/chat"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-br from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white rounded-lg font-medium transition-all duration-300 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-br from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white rounded-lg font-medium transition-all duration-300 hover:shadow-lg"
           >
             💬 Join Community Chat
           </Link>
+          {isLoggedIn && (
+            <Link
+              to="/editor"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-br from-purple-500 to-indigo-700 hover:from-purple-400 hover:to-indigo-600 text-white rounded-lg font-medium transition-all duration-300 hover:shadow-lg"
+            >
+              <Plus size={18} />
+              Create a Game
+            </Link>
+          )}
           {isAdmin && (
             <Link
               to="/admin"
@@ -201,13 +246,48 @@ export default function HomePage() {
           )}
         </div>
 
-        <div className="max-w-6xl mx-auto mt-12">
-          <div className="bg-gray-800/50 rounded-2xl p-8 text-center border border-gray-700">
-            <h3 className="text-xl font-semibold text-white mb-2">More Games Coming Soon!</h3>
-            <p className="text-gray-400">
-              We're working on adding more exciting games. Stay tuned for updates!
-            </p>
+        {/* Community Games */}
+        <div className="max-w-6xl mx-auto mt-14">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-semibold text-white flex items-center gap-2">
+              <Globe size={22} className="text-purple-400" />
+              Community Games
+            </h2>
+            {isLoggedIn && (
+              <Link to="/editor" className="flex items-center gap-1.5 text-purple-400 hover:text-purple-300 text-sm font-medium transition-colors">
+                <Plus size={16} />
+                Create yours
+              </Link>
+            )}
           </div>
+          {communityGames.length === 0 ? (
+            <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-10 text-center space-y-3">
+              <p className="text-gray-400 font-medium">No community games yet.</p>
+              {isLoggedIn
+                ? <p className="text-gray-500 text-sm">Be the first to create and publish a game!</p>
+                : <p className="text-gray-500 text-sm"><Link to="/login" className="text-purple-400 hover:underline">Log in</Link> to create and share games.</p>
+              }
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {communityGames.map((game) => (
+                <Link
+                  key={game.id}
+                  to={`/play/${game.id}`}
+                  className="group bg-gray-800 border border-gray-700 hover:border-purple-500/50 rounded-xl p-5 transition-all duration-200 hover:shadow-lg space-y-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-xs">
+                      {game.engineType === "3d" ? <Box size={12} /> : game.engineType === "2.5d" ? <Layers size={12} /> : <Layers size={12} />}
+                    </span>
+                    <span className="text-white font-semibold truncate group-hover:text-purple-300 transition-colors">{game.title}</span>
+                  </div>
+                  {game.description && <p className="text-gray-400 text-sm line-clamp-2">{game.description}</p>}
+                  <p className="text-gray-600 text-xs">by {game.authorUsername}</p>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </main>
 
