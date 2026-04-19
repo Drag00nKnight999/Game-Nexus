@@ -110,8 +110,8 @@ export async function registerRoutes(
 ): Promise<Server> {
   app.use(cookieParser());
 
-  // Seed the developer account on startup
-  await storage.seedUser("Drag00nKnightOFFICIAL", "bloxdhop2025");
+  // Seed the developer account on startup with a fixed join date so it never changes
+  await storage.seedUser("Drag00nKnightOFFICIAL", "bloxdhop2025", "2025-01-01T00:00:00.000Z");
 
   // User auth endpoints
   app.post("/api/auth/register", async (req: Request, res: Response) => {

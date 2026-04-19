@@ -30,12 +30,12 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
+  async createUser(insertUser: InsertUser, joinedAt?: string): Promise<User> {
     const id = this.currentId++;
     const hashedPassword = await bcrypt.hash(insertUser.password, 10);
     const user: User = { ...insertUser, password: hashedPassword, id };
     this.users.set(id, user);
-    this.joinDates.set(id, new Date().toISOString());
+    this.joinDates.set(id, joinedAt || new Date().toISOString());
     return user;
   }
 
@@ -43,10 +43,10 @@ export class MemStorage implements IStorage {
     return bcrypt.compare(plainPassword, user.password);
   }
 
-  async seedUser(username: string, plainPassword: string): Promise<void> {
+  async seedUser(username: string, plainPassword: string, joinedAt?: string): Promise<void> {
     const existing = await this.getUserByUsername(username);
     if (!existing) {
-      await this.createUser({ username, password: plainPassword });
+      await this.createUser({ username, password: plainPassword }, joinedAt);
     }
   }
 
