@@ -88,6 +88,15 @@ function isAdmin(username: string): boolean {
   return rank === "owner" || rank === "developer" || rank === "admin";
 }
 
+function isOwner(username: string): boolean {
+  return getUserRank(username) === "owner";
+}
+
+function isDeveloperOrAbove(username: string): boolean {
+  const rank = getUserRank(username);
+  return rank === "owner" || rank === "developer";
+}
+
 function checkRateLimit(identifier: string): boolean {
   const now = Date.now();
   if (!adminRateLimit.has(identifier)) {
@@ -375,17 +384,30 @@ export async function registerRoutes(
     }
 
     const normalizedUsername = username.toLowerCase();
+
+    // Protect owner account — can never be banned
+    if (getUserRank(normalizedUsername) === "owner") {
+      return res.status(403).json({ error: "The owner account cannot be banned." });
+    }
+
+    // Only the owner can ban developer-ranked accounts
+    const session = getUserSession(req);
+    const requesterRank = getUserRank(session?.username || "");
+    if (getUserRank(normalizedUsername) === "developer" && requesterRank !== "owner") {
+      return res.status(403).json({ error: "Only the owner can ban developer-ranked accounts." });
+    }
+
     const userId = `user_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const bannedUser = {
       id: userId,
       username,
       reason,
       bannedAt: new Date().toISOString(),
-      bannedBy: "admin",
+      bannedBy: session?.username || "admin",
     };
 
     bannedUsers.set(normalizedUsername, bannedUser);
-    logAuditAction("ban_user", { targetUser: username, reason });
+    logAuditAction("ban_user", { targetUser: username, reason, bannedBy: session?.username });
     res.json({ bannedUser });
   });
 
@@ -414,6 +436,41 @@ export async function registerRoutes(
     } else {
       res.status(404).json({ error: "User not found" });
     }
+  });
+
+  // ── Owner-only: Rank Management ─────────────────────────────────────
+  app.get("/api/admin/ranked-users", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    if (!isOwner(session.username)) return res.status(403).json({ error: "Owner access required" });
+    const allUsers = storage.getAllUsers ? storage.getAllUsers() : [];
+    const result = allUsers.map((u: any) => ({
+      id: u.id,
+      username: u.username,
+      rank: getUserRank(u.username),
+      joinedAt: storage.getUserJoinDate(u.id),
+    }));
+    return res.json({ users: result });
+  });
+
+  app.post("/api/admin/set-rank", (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    if (!isOwner(session.username)) return res.status(403).json({ error: "Only the owner can change developer ranks." });
+    const { username, rank } = req.body;
+    if (!username) return res.status(400).json({ error: "Username required" });
+    const validRanks = ["developer", "admin", "user"];
+    if (!validRanks.includes(rank)) return res.status(400).json({ error: "Invalid rank. Must be developer, admin, or user." });
+    // Cannot change the owner's own rank
+    const targetNormalized = username.toLowerCase();
+    if (isOwner(targetNormalized)) return res.status(403).json({ error: "Cannot change the owner's rank." });
+    if (rank === "user") {
+      userRanks.delete(targetNormalized);
+    } else {
+      userRanks.set(targetNormalized, rank);
+    }
+    logAuditAction("set_rank", { targetUser: username, newRank: rank, by: session.username });
+    return res.json({ success: true, username, rank });
   });
 
   app.post("/api/admin/games/:gameId/version", (req: Request, res: Response) => {
@@ -518,6 +575,11 @@ export async function registerRoutes(
     const { messageId } = req.params;
     const idx = chatMessages.findIndex((m) => m.id === messageId);
     if (idx === -1) return res.status(404).json({ error: "Message not found" });
+    // Only the owner can delete the owner's messages
+    const msg = chatMessages[idx];
+    if (isOwner(msg.username) && !isOwner(session.username)) {
+      return res.status(403).json({ error: "Only the owner can delete the owner's messages." });
+    }
     chatMessages.splice(idx, 1);
     logAuditAction("delete_chat_message", { messageId, deletedBy: session.username });
     return res.json({ success: true });

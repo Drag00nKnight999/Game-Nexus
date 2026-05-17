@@ -40,6 +40,8 @@ export interface IStorage {
   getGamesByUser(authorId: number): UserGame[];
   getPublicGames(): UserGame[];
 
+  getAllUsers(): User[];
+
   // Profiles
   getProfile(userId: number): UserProfile;
   updateProfile(userId: number, updates: Partial<UserProfile>): UserProfile;
@@ -132,6 +134,10 @@ export class MemStorage implements IStorage {
 
   getPublicGames(): UserGame[] {
     return Array.from(this.games.values()).filter((g) => g.isPublic);
+  }
+
+  getAllUsers(): User[] {
+    return Array.from(this.users.values());
   }
 
   // Profiles

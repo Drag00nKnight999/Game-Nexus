@@ -12,6 +12,8 @@ import {
   ChevronDown,
   Flag,
   Search,
+  Crown,
+  Code2,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
@@ -98,25 +100,24 @@ export default function AdminPanel() {
   const [chatReports, setChatReports] = useState<ChatReport[]>([]);
   const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [rankedUsers, setRankedUsers] = useState<{ id: number; username: string; rank: string; joinedAt: string }[]>([]);
+  const [rankSearchQuery, setRankSearchQuery] = useState("");
+  const [rankChangeTarget, setRankChangeTarget] = useState("");
+  const [rankChangeValue, setRankChangeValue] = useState("developer");
+  const [rankChangeLoading, setRankChangeLoading] = useState(false);
 
-  // Check if user has admin or developer rank
-  const isAdmin = rank === "developer" || rank === "admin";
+  // Permission levels
+  const isAdmin = rank === "owner" || rank === "developer" || rank === "admin";
+  const isOwner = rank === "owner";
 
   useEffect(() => {
     if (isAdmin) {
       fetchStats();
-      if (activeTab === "games") {
-        fetchGames();
-      }
-      if (activeTab === "users") {
-        fetchBannedUsers();
-      }
-      if (activeTab === "all-users") {
-        fetchChatUsers();
-      }
-      if (activeTab === "reports") {
-        fetchChatReports();
-      }
+      if (activeTab === "games") fetchGames();
+      if (activeTab === "users") fetchBannedUsers();
+      if (activeTab === "all-users") fetchChatUsers();
+      if (activeTab === "reports") fetchChatReports();
+      if (activeTab === "rank-management" && isOwner) fetchRankedUsers();
     }
   }, [activeTab, isAdmin]);
 
@@ -130,7 +131,7 @@ export default function AdminPanel() {
             </h1>
             <p className="text-gray-300 mb-6">
               You don't have permission to access the admin panel. Only
-              developers and admins can access this area.
+              the owner, developers, and admins can access this area.
             </p>
             <button
               onClick={() => navigate("/")}
@@ -392,6 +393,46 @@ export default function AdminPanel() {
     user.username.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
+  const fetchRankedUsers = async () => {
+    try {
+      const response = await fetch("/api/admin/ranked-users");
+      if (response.ok) {
+        const data = await response.json();
+        setRankedUsers(data.users || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch ranked users:", err);
+    }
+  };
+
+  const handleSetRank = async (username: string, newRank: string) => {
+    setRankChangeLoading(true);
+    try {
+      const response = await fetch("/api/admin/set-rank", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, rank: newRank }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setRankedUsers((prev) =>
+          prev.map((u) => u.username.toLowerCase() === username.toLowerCase() ? { ...u, rank: newRank } : u)
+        );
+        setRankChangeTarget("");
+      } else {
+        alert(data.error || "Failed to change rank");
+      }
+    } catch (err) {
+      alert("Network error");
+    } finally {
+      setRankChangeLoading(false);
+    }
+  };
+
+  const filteredRankedUsers = rankedUsers.filter((u) =>
+    u.username.toLowerCase().includes(rankSearchQuery.toLowerCase())
+  );
+
   const handleLogout = async () => {
     try {
       await fetch("/api/admin/logout", { method: "POST" });
@@ -479,6 +520,19 @@ export default function AdminPanel() {
               <Flag size={20} />
               Chat Reports
             </button>
+            {isOwner && (
+              <button
+                onClick={() => { setActiveTab("rank-management"); fetchRankedUsers(); }}
+                className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
+                  activeTab === "rank-management"
+                    ? "border-yellow-400 text-yellow-300"
+                    : "border-transparent text-gray-400 hover:text-white"
+                }`}
+              >
+                <Crown size={20} />
+                Rank Management
+              </button>
+            )}
           </div>
         </div>
 
@@ -865,6 +919,158 @@ export default function AdminPanel() {
                         : "No chat users yet"}
                     </p>
                   )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "rank-management" && isOwner && (
+              <div className="space-y-6">
+                {/* Grant rank form */}
+                <div className="bg-gray-800 rounded-lg border border-yellow-500/30 p-6">
+                  <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+                    <Crown size={20} className="text-yellow-400" />
+                    Assign Developer or Admin Rank
+                  </h3>
+                  <p className="text-gray-400 text-sm mb-5">Only you (the owner) can grant or revoke the Developer rank. Admins can be set here too.</p>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <input
+                      type="text"
+                      value={rankChangeTarget}
+                      onChange={(e) => setRankChangeTarget(e.target.value)}
+                      placeholder="Username to change rank..."
+                      className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 transition-colors"
+                    />
+                    <select
+                      value={rankChangeValue}
+                      onChange={(e) => setRankChangeValue(e.target.value)}
+                      className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-yellow-500 transition-colors"
+                    >
+                      <option value="developer">Developer</option>
+                      <option value="admin">Admin</option>
+                      <option value="user">User (remove rank)</option>
+                    </select>
+                    <button
+                      onClick={() => rankChangeTarget && handleSetRank(rankChangeTarget, rankChangeValue)}
+                      disabled={!rankChangeTarget || rankChangeLoading}
+                      className="px-5 py-2 bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-semibold rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {rankChangeLoading ? "Saving..." : "Apply"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* User list */}
+                <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <Users size={20} className="text-blue-400" />
+                    All Registered Users ({rankedUsers.length})
+                  </h3>
+                  <div className="mb-4">
+                    <div className="relative">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                      <input
+                        type="text"
+                        value={rankSearchQuery}
+                        onChange={(e) => setRankSearchQuery(e.target.value)}
+                        placeholder="Search users..."
+                        className="w-full pl-11 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 transition-colors"
+                      />
+                    </div>
+                  </div>
+                  {filteredRankedUsers.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-600 text-gray-400">
+                            <th className="px-4 py-2 text-left">Username</th>
+                            <th className="px-4 py-2 text-left">Rank</th>
+                            <th className="px-4 py-2 text-left">Joined</th>
+                            <th className="px-4 py-2 text-center">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredRankedUsers.map((user) => {
+                            const isProtected = user.rank === "owner";
+                            return (
+                              <tr key={user.id} className="border-b border-gray-700 hover:bg-gray-700/40 transition-colors">
+                                <td className="px-4 py-3 text-white font-medium">{user.username}</td>
+                                <td className="px-4 py-3">
+                                  {user.rank === "owner" && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-xs font-bold">
+                                      <Crown size={10} />OWNER
+                                    </span>
+                                  )}
+                                  {user.rank === "developer" && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-bold">
+                                      <Code2 size={10} />DEV
+                                    </span>
+                                  )}
+                                  {user.rank === "admin" && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs font-bold">
+                                      <Shield size={10} />ADMIN
+                                    </span>
+                                  )}
+                                  {user.rank === "user" && (
+                                    <span className="text-gray-500 text-xs">Member</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-gray-400 text-xs">
+                                  {new Date(user.joinedAt).toLocaleDateString()}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {isProtected ? (
+                                    <span className="text-gray-600 text-xs">Protected</span>
+                                  ) : (
+                                    <div className="flex items-center justify-center gap-1">
+                                      {user.rank !== "developer" && (
+                                        <button
+                                          onClick={() => handleSetRank(user.username, "developer")}
+                                          className="px-2 py-1 text-xs bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-600/30 rounded transition-colors"
+                                        >
+                                          Make Dev
+                                        </button>
+                                      )}
+                                      {user.rank !== "admin" && (
+                                        <button
+                                          onClick={() => handleSetRank(user.username, "admin")}
+                                          className="px-2 py-1 text-xs bg-orange-500/20 hover:bg-orange-500/40 text-orange-300 border border-orange-500/30 rounded transition-colors"
+                                        >
+                                          Make Admin
+                                        </button>
+                                      )}
+                                      {user.rank !== "user" && (
+                                        <button
+                                          onClick={() => handleSetRank(user.username, "user")}
+                                          className="px-2 py-1 text-xs bg-gray-600/40 hover:bg-gray-600/60 text-gray-400 border border-gray-600 rounded transition-colors"
+                                        >
+                                          Remove Rank
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 text-center py-8">
+                      {rankSearchQuery ? "No users matching your search" : "No registered users yet"}
+                    </p>
+                  )}
+                </div>
+
+                {/* Explanation */}
+                <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-5 space-y-2">
+                  <h4 className="text-yellow-300 font-semibold flex items-center gap-2 text-sm"><Crown size={14} />Owner Exclusive Permissions</h4>
+                  <ul className="text-gray-400 text-sm space-y-1 list-disc list-inside">
+                    <li>Only you can grant or revoke the <span className="text-purple-300 font-medium">Developer</span> rank</li>
+                    <li>Your account cannot be banned by anyone</li>
+                    <li>Developer accounts can only be banned by you</li>
+                    <li>Your chat messages cannot be deleted by developers or admins</li>
+                  </ul>
                 </div>
               </div>
             )}
