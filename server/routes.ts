@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from "ws";
 import cookieParser from "cookie-parser";
 import multer from "multer";
 import path from "path";
@@ -19,17 +20,23 @@ const upload = multer({
       cb(null, `${gameId}_${Date.now()}${ext}`);
     },
   }),
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB max
+  limits: { fileSize: 500 * 1024 * 1024 },
 });
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
-const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+const SESSION_TIMEOUT = 30 * 60 * 1000;
 const sessions = new Map<string, { createdAt: number }>();
-
-// User auth sessions (separate from admin sessions)
-const USER_SESSION_TIMEOUT = 7 * 24 * 60 * 60 * 1000; // 7 days
+const USER_SESSION_TIMEOUT = 7 * 24 * 60 * 60 * 1000;
 const userSessions = new Map<string, { userId: number; username: string; createdAt: number }>();
 
+const adminRateLimit = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW = 60 * 1000;
+const MAX_REQUESTS_PER_MINUTE = 10;
+const auditLog: any[] = [];
+
+function generateSessionId(): string {
+  return require("crypto").randomBytes(32).toString("hex");
+}
 function generateUserSessionId(): string {
   return require("crypto").randomBytes(32).toString("hex");
 }
@@ -38,172 +45,129 @@ function getUserSession(req: Request): { userId: number; username: string } | nu
   const sid = req.cookies?.userSessionId;
   if (!sid || !userSessions.has(sid)) return null;
   const session = userSessions.get(sid)!;
-  if (Date.now() - session.createdAt > USER_SESSION_TIMEOUT) {
-    userSessions.delete(sid);
-    return null;
-  }
+  if (Date.now() - session.createdAt > USER_SESSION_TIMEOUT) { userSessions.delete(sid); return null; }
   return { userId: session.userId, username: session.username };
-}
-
-// Rank system: "owner" > "developer" > "admin" > "user"
-const userRanks: Map<string, string> = new Map([
-  ["drag00nknightofficial", "owner"], // Owner rank for the site creator
-]);
-
-// Rate limiting for sensitive operations
-const adminRateLimit = new Map<string, number[]>();
-const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const MAX_REQUESTS_PER_MINUTE = 10;
-
-// Audit log for admin actions
-const auditLog: any[] = [];
-
-function generateSessionId(): string {
-  return require("crypto").randomBytes(32).toString("hex");
 }
 
 function isAuthenticated(req: Request): boolean {
   const sessionId = req.cookies?.sessionId;
   if (!sessionId || !sessions.has(sessionId)) return false;
-  
   const session = sessions.get(sessionId);
   if (!session) return false;
-  
-  // Check if session has expired
-  if (Date.now() - session.createdAt > SESSION_TIMEOUT) {
-    sessions.delete(sessionId);
-    return false;
-  }
-  
+  if (Date.now() - session.createdAt > SESSION_TIMEOUT) { sessions.delete(sessionId); return false; }
   return true;
 }
 
-function getUserRank(username: string): string {
-  const normalizedUsername = username.toLowerCase();
-  return userRanks.get(normalizedUsername) || "user";
+// Rank helpers — owner always hardcoded; rest from DB
+async function getUserRank(username: string): Promise<string> {
+  if (username.toLowerCase() === "drag00nknightofficial") return "owner";
+  return storage.getUserRankFromDB(username);
 }
-
-function isAdmin(username: string): boolean {
-  const rank = getUserRank(username);
+async function isAdmin(username: string): Promise<boolean> {
+  const rank = await getUserRank(username);
   return rank === "owner" || rank === "developer" || rank === "admin";
 }
-
-function isOwner(username: string): boolean {
-  return getUserRank(username) === "owner";
+async function isOwner(username: string): Promise<boolean> {
+  return username.toLowerCase() === "drag00nknightofficial";
 }
-
-function isDeveloperOrAbove(username: string): boolean {
-  const rank = getUserRank(username);
+async function isDeveloperOrAbove(username: string): Promise<boolean> {
+  const rank = await getUserRank(username);
   return rank === "owner" || rank === "developer";
 }
 
 function checkRateLimit(identifier: string): boolean {
   const now = Date.now();
-  if (!adminRateLimit.has(identifier)) {
-    adminRateLimit.set(identifier, []);
-  }
-  
-  const timestamps = adminRateLimit.get(identifier) || [];
-  // Remove timestamps outside the window
-  const validTimestamps = timestamps.filter(ts => now - ts < RATE_LIMIT_WINDOW);
-  
-  if (validTimestamps.length >= MAX_REQUESTS_PER_MINUTE) {
-    return false;
-  }
-  
-  validTimestamps.push(now);
-  adminRateLimit.set(identifier, validTimestamps);
+  if (!adminRateLimit.has(identifier)) adminRateLimit.set(identifier, []);
+  const timestamps = (adminRateLimit.get(identifier) || []).filter(ts => now - ts < RATE_LIMIT_WINDOW);
+  if (timestamps.length >= MAX_REQUESTS_PER_MINUTE) return false;
+  timestamps.push(now);
+  adminRateLimit.set(identifier, timestamps);
   return true;
 }
 
 function logAuditAction(action: string, details: any): void {
-  auditLog.push({
-    timestamp: new Date().toISOString(),
-    action,
-    details,
-  });
-}
-
-function requireAdminRank(req: Request, res: Response, username: string): boolean {
-  if (!isAdmin(username)) {
-    res.status(403).json({ error: "Unauthorized: Admin access required" });
-    return false;
-  }
-  return true;
+  auditLog.push({ timestamp: new Date().toISOString(), action, details });
 }
 
 function getTemplateResponse(prompt: string, engineType: string, _code: string): string {
   const p = prompt.toLowerCase();
-  if (p.includes("enemy") || p.includes("npc")) {
-    return `To add an enemy, create an object with position and movement logic:\n\n\`\`\`js\nconst enemy = { x: 100, y: 100, w: 30, h: 30, speed: 2, color: '#ef4444' };\nfunction updateEnemy() {\n  // Move toward player\n  const dx = player.x - enemy.x;\n  const dy = player.y - enemy.y;\n  const dist = Math.sqrt(dx*dx + dy*dy);\n  enemy.x += (dx/dist) * enemy.speed;\n  enemy.y += (dy/dist) * enemy.speed;\n}\n\`\`\`\nCall \`updateEnemy()\` in your update loop.`;
-  }
-  if (p.includes("score") || p.includes("point")) {
-    return `Add a score system:\n\n\`\`\`js\nlet score = 0;\n// Draw score\nctx.fillStyle = '#fff';\nctx.font = 'bold 20px monospace';\nctx.fillText('Score: ' + score, 10, 30);\n// Increase score on collision\nscore += 10;\n\`\`\``;
-  }
-  if (p.includes("jump") || p.includes("gravity")) {
-    return `Add jumping with gravity:\n\n\`\`\`js\nlet vy = 0;\nconst gravity = 0.5;\nconst jumpForce = -12;\nconst ground = canvas.height - 60;\n// In update:\nvy += gravity;\nplayer.y += vy;\nif (player.y >= ground) { player.y = ground; vy = 0; }\nif (keys['Space'] && player.y === ground) vy = jumpForce;\n\`\`\``;
-  }
-  if (p.includes("color") || p.includes("background")) {
-    return `Change colors by editing the fill style values:\n\n\`\`\`js\nctx.fillStyle = '#1e1b4b'; // Dark indigo background\nctx.fillRect(0, 0, canvas.width, canvas.height);\nplayer.color = '#22d3ee'; // Cyan player\n\`\`\`\nUse hex codes like #ff0000 for red, #00ff00 for green.`;
-  }
-  if (p.includes("bullet") || p.includes("shoot")) {
-    return `Add a shooting mechanic:\n\n\`\`\`js\nconst bullets = [];\ndocument.addEventListener('keydown', e => {\n  if (e.code === 'Space') {\n    bullets.push({ x: player.x + player.w/2, y: player.y, speed: 8 });\n  }\n});\nfunction updateBullets() {\n  bullets.forEach(b => b.y -= b.speed);\n  bullets.filter(b => b.y > 0); // Remove off-screen\n}\nfunction drawBullets() {\n  bullets.forEach(b => {\n    ctx.fillStyle = '#fbbf24';\n    ctx.fillRect(b.x - 3, b.y, 6, 12);\n  });\n}\n\`\`\``;
-  }
-  if (engineType === "3d" && (p.includes("light") || p.includes("shadow"))) {
-    return `Add lighting to your Three.js scene:\n\n\`\`\`js\n// Ambient light (global illumination)\nconst ambient = new THREE.AmbientLight(0x404040, 0.5);\nscene.add(ambient);\n// Directional light (like sunlight)\nconst sun = new THREE.DirectionalLight(0xffffff, 1);\nsun.position.set(10, 20, 10);\nsun.castShadow = true;\nscene.add(sun);\n// Enable shadows on renderer\nrenderer.shadowMap.enabled = true;\n\`\`\``;
-  }
-  return `To help with "${prompt}", try breaking it down:\n1. Define the game object (position, size, color)\n2. Add update logic in your game loop\n3. Draw it in your render function\n\nFor more specific help, describe exactly what behavior you want, e.g. "make the player stop at the edges" or "add a red enemy that moves left and right".`;
+  if (p.includes("enemy") || p.includes("npc")) return `To add an enemy, create an object with position and movement logic:\n\`\`\`js\nconst enemy = { x: 100, y: 100, w: 30, h: 30, speed: 2, color: '#ef4444' };\nfunction updateEnemy() {\n  const dx = player.x - enemy.x;\n  const dy = player.y - enemy.y;\n  const dist = Math.sqrt(dx*dx + dy*dy);\n  enemy.x += (dx/dist) * enemy.speed;\n  enemy.y += (dy/dist) * enemy.speed;\n}\n\`\`\`\nCall updateEnemy() in your update loop.`;
+  if (p.includes("score") || p.includes("point")) return `Add a score system:\n\`\`\`js\nlet score = 0;\nctx.fillStyle = '#fff';\nctx.font = 'bold 20px monospace';\nctx.fillText('Score: ' + score, 10, 30);\nscore += 10;\n\`\`\``;
+  if (p.includes("jump") || p.includes("gravity")) return `Add jumping with gravity:\n\`\`\`js\nlet vy = 0;\nconst gravity = 0.5;\nconst jumpForce = -12;\nconst ground = canvas.height - 60;\nvy += gravity;\nplayer.y += vy;\nif (player.y >= ground) { player.y = ground; vy = 0; }\nif (keys['Space'] && player.y === ground) vy = jumpForce;\n\`\`\``;
+  return `To help with "${prompt}", try breaking it down:\n1. Define the game object (position, size, color)\n2. Add update logic in your game loop\n3. Draw it in your render function`;
 }
 
-export async function registerRoutes(
-  httpServer: Server,
-  app: Express
-): Promise<Server> {
+const swearWords = new Set(["damn","hell","crap","piss","bastard","bitch","ass","asshole","shit","fuck","fucked","fucking","cunt","cock","dick","pussy","whore","slut","motherfucker","goddamn","jackass","dipshit","arsehole","bollocks","bugger","arse","twat","wanker"]);
+const containsSwearWords = (text: string): boolean => text.toLowerCase().split(/\s+/).some(word => swearWords.has(word.replace(/[^a-z]/g, "")));
+
+const ACHIEVEMENT_DEFS: Record<string, { label: string; description: string; icon: string }> = {
+  first_game:  { label: "Game Creator",   description: "Created your first game",       icon: "🎮" },
+  publisher:   { label: "Publisher",       description: "Published your first game",     icon: "🌍" },
+  popular:     { label: "Fan Favorite",    description: "Received 10+ likes on a game",  icon: "⭐" },
+  veteran:     { label: "Veteran",         description: "Member for 30+ days",           icon: "🏅" },
+  social:      { label: "Influencer",      description: "Gained 10+ followers",          icon: "👥" },
+  commenter:   { label: "Commentator",     description: "Left your first comment",       icon: "💬" },
+};
+
+// Admin panel featured games (in-memory, static)
+const adminGames: Map<string, any> = new Map([
+  ["snake",    { id:"snake",    title:"Snake",                     currentVersion:"1.0.0", uploadedAt: new Date().toISOString(), size:1024*50,      versions:[{versionNumber:"1.0.0",uploadedAt:new Date().toISOString(),size:1024*50,      isActive:true}] }],
+  ["memory",   { id:"memory",   title:"Memory Match",              currentVersion:"1.0.0", uploadedAt: new Date().toISOString(), size:1024*40,      versions:[{versionNumber:"1.0.0",uploadedAt:new Date().toISOString(),size:1024*40,      isActive:true}] }],
+  ["platformer",{id:"platformer",title:"Platformer",               currentVersion:"1.0.0", uploadedAt: new Date().toISOString(), size:1024*80,      versions:[{versionNumber:"1.0.0",uploadedAt:new Date().toISOString(),size:1024*80,      isActive:true}] }],
+  ["bloxd",    { id:"bloxd",    title:"Bloxd.io (Scratch Edition)",currentVersion:"1.0.0", uploadedAt: new Date().toISOString(), size:1024*1024*50, versions:[{versionNumber:"1.0.0",uploadedAt:new Date().toISOString(),size:1024*1024*50, isActive:true}] }],
+]);
+
+export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.use(cookieParser());
 
-  // Seed the developer account on startup with a fixed join date so it never changes
+  // Seed owner account + rank
   await storage.seedUser("Drag00nKnightOFFICIAL", "bloxdhop2025", "2025-01-01T00:00:00.000Z");
+  await storage.setUserRankInDB("drag00nknightofficial", "owner");
 
-  // User auth endpoints
+  // ── WebSocket Chat ─────────────────────────────────────────────────────
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws/chat" });
+  const wsClients = new Set<WebSocket>();
+  wss.on("connection", (ws) => {
+    wsClients.add(ws);
+    ws.on("close", () => wsClients.delete(ws));
+    ws.on("error", () => wsClients.delete(ws));
+  });
+  const broadcast = (data: any) => {
+    const str = JSON.stringify(data);
+    wsClients.forEach((c) => { if (c.readyState === WebSocket.OPEN) c.send(str); });
+  };
+
+  // ── Auth ───────────────────────────────────────────────────────────────
   app.post("/api/auth/register", async (req: Request, res: Response) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: "Username and password are required" });
-    }
-    if (username.length < 2 || username.length > 25) {
-      return res.status(400).json({ error: "Username must be between 2 and 25 characters" });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: "Password must be at least 6 characters" });
-    }
+    const { username, password, email } = req.body;
+    if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
+    if (username.length < 2 || username.length > 25) return res.status(400).json({ error: "Username must be 2–25 characters" });
+    if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Invalid email address" });
     const existing = await storage.getUserByUsername(username);
-    if (existing) {
-      return res.status(409).json({ error: "Username already taken" });
-    }
-    const user = await storage.createUser({ username, password });
+    if (existing) return res.status(409).json({ error: "Username already taken" });
+    const user = await storage.createUser({ username, password, email: email || undefined });
+    const rank = await getUserRank(user.username);
     const sid = generateUserSessionId();
     userSessions.set(sid, { userId: user.id, username: user.username, createdAt: Date.now() });
     res.cookie("userSessionId", sid, { httpOnly: true, sameSite: "strict", maxAge: USER_SESSION_TIMEOUT });
-    return res.json({ username: user.username, rank: getUserRank(user.username) });
+    // Veteran achievement check handled on profile load
+    return res.json({ username: user.username, rank });
   });
 
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: "Username and password are required" });
-    }
+    if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
     const user = await storage.getUserByUsername(username);
-    if (!user) {
-      return res.status(401).json({ error: "Invalid username or password" });
-    }
+    if (!user) return res.status(401).json({ error: "Invalid username or password" });
     const valid = await storage.validatePassword(user, password);
-    if (!valid) {
-      return res.status(401).json({ error: "Invalid username or password" });
-    }
+    if (!valid) return res.status(401).json({ error: "Invalid username or password" });
+    const rank = await getUserRank(user.username);
+    const profile = await storage.getProfile(user.id);
     const sid = generateUserSessionId();
     userSessions.set(sid, { userId: user.id, username: user.username, createdAt: Date.now() });
     res.cookie("userSessionId", sid, { httpOnly: true, sameSite: "strict", maxAge: USER_SESSION_TIMEOUT });
-    return res.json({ username: user.username, rank: getUserRank(user.username) });
+    return res.json({ username: user.username, rank, isPremium: profile.isPremium });
   });
 
   app.post("/api/auth/logout", (req: Request, res: Response) => {
@@ -213,692 +177,663 @@ export async function registerRoutes(
     return res.json({ success: true });
   });
 
-  app.get("/api/auth/me", (req: Request, res: Response) => {
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    const profile = storage.getProfile(session.userId);
-    return res.json({ username: session.username, rank: getUserRank(session.username), isPremium: profile.isPremium });
+    const rank = await getUserRank(session.username);
+    const profile = await storage.getProfile(session.userId);
+    const unreadDMs = await storage.getUnreadDMCount(session.userId);
+    return res.json({ username: session.username, rank, isPremium: profile.isPremium, unreadDMs });
   });
 
+  // ── Admin auth ─────────────────────────────────────────────────────────
   app.post("/api/admin/login", (req: Request, res: Response) => {
     const { password } = req.body;
-
     if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) {
       const sessionId = generateSessionId();
       sessions.set(sessionId, { createdAt: Date.now() });
-      // Set cookie without expiration to avoid session loss on browser close
       res.cookie("sessionId", sessionId, { httpOnly: true, secure: true, sameSite: "strict" });
       logAuditAction("admin_login", { timestamp: new Date().toISOString() });
-      res.json({ success: true });
-    } else {
-      logAuditAction("admin_login_failed", { timestamp: new Date().toISOString() });
-      res.status(401).json({ error: "Invalid password" });
+      return res.json({ success: true });
     }
+    logAuditAction("admin_login_failed", { timestamp: new Date().toISOString() });
+    return res.status(401).json({ error: "Invalid password" });
   });
 
   app.post("/api/admin/logout", (req: Request, res: Response) => {
     const sessionId = req.cookies?.sessionId;
-    if (sessionId) {
-      sessions.delete(sessionId);
-      logAuditAction("admin_logout", { timestamp: new Date().toISOString() });
-    }
+    if (sessionId) { sessions.delete(sessionId); logAuditAction("admin_logout", {}); }
     res.clearCookie("sessionId");
-    res.json({ success: true });
+    return res.json({ success: true });
   });
 
-  app.get("/api/user/rank/:username", (req: Request, res: Response) => {
-    const { username } = req.params;
-    const rank = getUserRank(username);
-    res.json({ username, rank });
-  });
-
+  // ── Profile & Settings ─────────────────────────────────────────────────
   app.get("/api/profile/:username", async (req: Request, res: Response) => {
     const { username } = req.params;
     const user = await storage.getUserByUsername(username);
     if (!user) return res.status(404).json({ error: "User not found" });
-    const rank = getUserRank(user.username);
-    const joinedAt = storage.getUserJoinDate(user.id);
-    const profile = storage.getProfile(user.id);
-    const publicGames = storage.getGamesByUser(user.id).filter((g) => g.isPublic);
+    const rank = await getUserRank(user.username);
+    const joinedAt = await storage.getUserJoinDate(user.id);
+    const profile = await storage.getProfile(user.id);
+    const publicGames = await storage.getGamesByUser(user.id);
+    const achievements = await storage.getAchievements(user.id);
+    const followerCount = await storage.getFollowerCount(user.id);
+    const followingCount = await storage.getFollowingCount(user.id);
+    // Check veteran achievement
+    const joined = new Date(joinedAt);
+    const daysSinceJoin = (Date.now() - joined.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSinceJoin >= 30) await storage.grantAchievement(user.id, "veteran");
     return res.json({
-      username: user.username,
-      rank,
-      joinedAt,
-      bio: profile.bio,
-      avatarColor: profile.avatarColor,
-      isPremium: profile.isPremium,
-      publicGameCount: publicGames.length,
+      username: user.username, rank, joinedAt, bio: profile.bio, avatarColor: profile.avatarColor,
+      isPremium: profile.isPremium, publicGameCount: publicGames.filter(g => g.isPublic).length,
+      publicGames: publicGames.filter(g => g.isPublic).slice(0, 12),
+      achievements: achievements.map(a => ({ ...a, ...(ACHIEVEMENT_DEFS[a.type] || { label: a.type, description: "", icon: "🏆" }) })),
+      followerCount, followingCount,
     });
   });
 
-  app.get("/api/user/banned/:username", (req: Request, res: Response) => {
-    const { username } = req.params;
-    const normalizedUsername = username.toLowerCase();
-    const isBanned = bannedUsers.has(normalizedUsername);
-    res.json({ username, isBanned });
-  });
-
-  app.get("/api/admin/stats", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const stats = {
-      totalUsers: storage.getUserCount(),
-      totalGames: 4,
-      totalPlays: 0,
-    };
-
-    const gameStats = [
-      { title: "Snake", plays: 0, averageTime: 0 },
-      { title: "Memory Match", plays: 0, averageTime: 0 },
-      { title: "Platformer", plays: 0, averageTime: 0 },
-      { title: "Bloxd.io (Scratch Edition)", plays: 0, averageTime: 0 },
-    ];
-
-    res.json({ stats, gameStats });
-  });
-
-  const games: Map<string, any> = new Map([
-    ["snake", { id: "snake", title: "Snake", currentVersion: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 50, versions: [{ versionNumber: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 50, isActive: true }] }],
-    ["memory", { id: "memory", title: "Memory Match", currentVersion: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 40, versions: [{ versionNumber: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 40, isActive: true }] }],
-    ["platformer", { id: "platformer", title: "Platformer", currentVersion: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 80, versions: [{ versionNumber: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 80, isActive: true }] }],
-    ["bloxd", { id: "bloxd", title: "Bloxd.io (Scratch Edition)", currentVersion: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 1024 * 50, versions: [{ versionNumber: "1.0.0", uploadedAt: new Date().toISOString(), size: 1024 * 1024 * 50, isActive: true }] }],
-  ]);
-
-  const bannedUsers: Map<string, any> = new Map();
-  const chatMessages: any[] = [];
-  const chatReports: any[] = [];
-  
-  const swearWords = new Set([
-    "damn", "hell", "crap", "piss", "bastard", "bitch", "ass", "asshole",
-    "shit", "fuck", "fucked", "fucking", "cunt", "cock", "dick", "pussy",
-    "whore", "slut", "motherfucker", "goddamn", "jackass", "dipshit",
-    "arsehole", "bollocks", "bugger", "arse", "twat", "wanker",
-  ]);
-
-  const containsSwearWords = (text: string): boolean => {
-    const words = text.toLowerCase().split(/\s+/);
-    return words.some(word => {
-      const cleanWord = word.replace(/[^a-z]/g, "");
-      return swearWords.has(cleanWord);
-    });
-  };
-
-  app.get("/api/admin/games", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    res.json({ games: Array.from(games.values()) });
-  });
-
-  app.delete("/api/admin/games/:gameId", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const { adminPassword } = req.body;
-    if (adminPassword !== ADMIN_PASSWORD) {
-      return res.status(403).json({ error: "Invalid admin password. Sensitive actions require password confirmation." });
-    }
-
-    const { gameId } = req.params;
-    const game = games.get(gameId);
-    if (game) {
-      games.delete(gameId);
-      logAuditAction("delete_game", { gameId, title: game.title });
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: "Game not found" });
-    }
-  });
-
-  app.get("/api/admin/banned-users", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    res.json({ bannedUsers: Array.from(bannedUsers.values()) });
-  });
-
-  app.post("/api/admin/ban-user", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const sessionId = req.cookies?.sessionId || "";
-    if (!checkRateLimit(`ban-user-${sessionId}`)) {
-      return res.status(429).json({ error: "Too many requests. Please try again later." });
-    }
-
-    const { username, reason, adminPassword } = req.body;
-    if (!username || !reason) {
-      return res.status(400).json({ error: "Username and reason required" });
-    }
-
-    // Verify admin password for sensitive action
-    if (adminPassword !== ADMIN_PASSWORD) {
-      logAuditAction("ban_user_unauthorized_attempt", { targetUser: username });
-      return res.status(403).json({ error: "Invalid admin password. Sensitive actions require password confirmation." });
-    }
-
-    const normalizedUsername = username.toLowerCase();
-
-    // Protect owner account — can never be banned
-    if (getUserRank(normalizedUsername) === "owner") {
-      return res.status(403).json({ error: "The owner account cannot be banned." });
-    }
-
-    // Only the owner can ban developer-ranked accounts
-    const session = getUserSession(req);
-    const requesterRank = getUserRank(session?.username || "");
-    if (getUserRank(normalizedUsername) === "developer" && requesterRank !== "owner") {
-      return res.status(403).json({ error: "Only the owner can ban developer-ranked accounts." });
-    }
-
-    const userId = `user_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    const bannedUser = {
-      id: userId,
-      username,
-      reason,
-      bannedAt: new Date().toISOString(),
-      bannedBy: session?.username || "admin",
-    };
-
-    bannedUsers.set(normalizedUsername, bannedUser);
-    logAuditAction("ban_user", { targetUser: username, reason, bannedBy: session?.username });
-    res.json({ bannedUser });
-  });
-
-  app.post("/api/admin/unban-user/:userId", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const sessionId = req.cookies?.sessionId || "";
-    if (!checkRateLimit(`unban-user-${sessionId}`)) {
-      return res.status(429).json({ error: "Too many requests. Please try again later." });
-    }
-
-    const { adminPassword } = req.body;
-    if (adminPassword !== ADMIN_PASSWORD) {
-      return res.status(403).json({ error: "Invalid admin password. Sensitive actions require password confirmation." });
-    }
-
-    const { userId } = req.params;
-    const userToUnban = Array.from(bannedUsers.values()).find(u => u.id === userId);
-    if (userToUnban) {
-      const normalizedUsername = userToUnban.username.toLowerCase();
-      bannedUsers.delete(normalizedUsername);
-      logAuditAction("unban_user", { targetUser: userToUnban.username });
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: "User not found" });
-    }
-  });
-
-  // ── Owner-only: Rank Management ─────────────────────────────────────
-  app.get("/api/admin/ranked-users", (req: Request, res: Response) => {
+  app.get("/api/settings", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    if (!isOwner(session.username)) return res.status(403).json({ error: "Owner access required" });
-    const allUsers = storage.getAllUsers ? storage.getAllUsers() : [];
-    const result = allUsers.map((u: any) => ({
-      id: u.id,
-      username: u.username,
-      rank: getUserRank(u.username),
-      joinedAt: storage.getUserJoinDate(u.id),
-    }));
-    return res.json({ users: result });
+    const profile = await storage.getProfile(session.userId);
+    const email = await storage.getUserEmail(session.userId);
+    return res.json({ ...profile, email });
   });
 
-  app.post("/api/admin/set-rank", (req: Request, res: Response) => {
+  app.put("/api/settings", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    if (!isOwner(session.username)) return res.status(403).json({ error: "Only the owner can change developer ranks." });
-    const { username, rank } = req.body;
-    if (!username) return res.status(400).json({ error: "Username required" });
-    const validRanks = ["developer", "admin", "user"];
-    if (!validRanks.includes(rank)) return res.status(400).json({ error: "Invalid rank. Must be developer, admin, or user." });
-    // Cannot change the owner's own rank
-    const targetNormalized = username.toLowerCase();
-    if (isOwner(targetNormalized)) return res.status(403).json({ error: "Cannot change the owner's rank." });
-    if (rank === "user") {
-      userRanks.delete(targetNormalized);
-    } else {
-      userRanks.set(targetNormalized, rank);
-    }
-    logAuditAction("set_rank", { targetUser: username, newRank: rank, by: session.username });
-    return res.json({ success: true, username, rank });
-  });
-
-  app.post("/api/admin/games/:gameId/version", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const { gameId } = req.params;
-    const { versionNumber } = req.body;
-
-    if (!versionNumber) {
-      return res.status(400).json({ error: "Version number required" });
-    }
-
-    const game = games.get(gameId);
-    if (!game) {
-      return res.status(404).json({ error: "Game not found" });
-    }
-
-    const newVersion = {
-      versionNumber,
-      uploadedAt: new Date().toISOString(),
-      size: Math.floor(Math.random() * 100000000),
-      isActive: false,
-    };
-
-    game.versions.push(newVersion);
-    res.json({ game });
-  });
-
-  app.post("/api/admin/games/:gameId/version/:versionNumber/activate", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const { gameId, versionNumber } = req.params;
-
-    const game = games.get(gameId);
-    if (!game) {
-      return res.status(404).json({ error: "Game not found" });
-    }
-
-    game.versions.forEach((v: any) => {
-      v.isActive = v.versionNumber === versionNumber;
-    });
-
-    game.currentVersion = versionNumber;
-    res.json({ game });
-  });
-
-  // Serve uploaded game files for download
-  app.get("/api/admin/games/:gameId/download/:filename", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
-    const { filename } = req.params;
-    const filePath = path.join(UPLOADS_DIR, path.basename(filename));
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
-    res.download(filePath);
-  });
-
-  // Upload a real game file and register it as a new version
-  app.post("/api/admin/games/:gameId/upload", upload.single("file"), (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
-
-    const { gameId } = req.params;
-    const { versionNumber } = req.body as { versionNumber?: string };
-
-    if (!versionNumber) {
-      if (req.file) fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: "Version number required" });
-    }
-
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-
-    const game = games.get(gameId);
-    if (!game) {
-      fs.unlinkSync(req.file.path);
-      return res.status(404).json({ error: "Game not found" });
-    }
-
-    const newVersion = {
-      versionNumber,
-      uploadedAt: new Date().toISOString(),
-      size: req.file.size,
-      isActive: false,
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-    };
-
-    game.versions.push(newVersion);
-    logAuditAction("upload_game_file", { gameId, versionNumber, filename: req.file.filename, size: req.file.size });
-    return res.json({ game });
-  });
-
-  app.get("/api/chat/messages", (req: Request, res: Response) => {
-    res.json({ messages: chatMessages });
-  });
-
-  app.delete("/api/chat/messages/:messageId", (req: Request, res: Response) => {
-    const session = getUserSession(req);
-    if (!session) return res.status(401).json({ error: "Not authenticated" });
-    if (!isAdmin(session.username)) return res.status(403).json({ error: "Developer or admin access required" });
-    const { messageId } = req.params;
-    const idx = chatMessages.findIndex((m) => m.id === messageId);
-    if (idx === -1) return res.status(404).json({ error: "Message not found" });
-    // Only the owner can delete the owner's messages
-    const msg = chatMessages[idx];
-    if (isOwner(msg.username) && !isOwner(session.username)) {
-      return res.status(403).json({ error: "Only the owner can delete the owner's messages." });
-    }
-    chatMessages.splice(idx, 1);
-    logAuditAction("delete_chat_message", { messageId, deletedBy: session.username });
-    return res.json({ success: true });
-  });
-
-  app.get("/api/admin/chat/users", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const users = new Map<string, any>();
-    chatMessages.forEach((msg) => {
-      const normalizedUsername = msg.username.toLowerCase();
-      if (!users.has(normalizedUsername)) {
-        users.set(normalizedUsername, {
-          username: msg.username,
-          messageCount: 0,
-          lastMessageAt: msg.timestamp,
-          isBanned: bannedUsers.has(normalizedUsername),
-        });
-      }
-      const user = users.get(normalizedUsername);
-      user.messageCount += 1;
-      user.lastMessageAt = msg.timestamp;
-    });
-
-    res.json({ users: Array.from(users.values()) });
-  });
-
-  app.post("/api/chat/messages", (req: Request, res: Response) => {
-    const session = getUserSession(req);
-    if (!session) {
-      return res.status(401).json({ error: "You must be logged in to send messages" });
-    }
-
-    const { text } = req.body;
-    const username = session.username;
-
-    if (!text) {
-      return res.status(400).json({ error: "Message text required" });
-    }
-
-    const normalizedUsername = username.toLowerCase();
-    if (bannedUsers.has(normalizedUsername)) {
-      return res.status(403).json({ error: "User is banned" });
-    }
-
-    const flagged = containsSwearWords(text);
-
-    const message = {
-      id: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-      username,
-      rank: getUserRank(username),
-      text,
-      timestamp: new Date().toISOString(),
-      flagged,
-    };
-
-    chatMessages.push(message);
-    res.json({ message });
-  });
-
-  app.get("/api/chat/reports", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const reportsWithMessages = chatReports.map((report) => ({
-      ...report,
-      message: chatMessages.find((msg) => msg.id === report.messageId),
-    }));
-
-    res.json({ reports: reportsWithMessages });
-  });
-
-  app.post("/api/chat/reports", (req: Request, res: Response) => {
-    const { messageId, reason, reportedBy } = req.body;
-
-    if (!messageId || !reason || !reportedBy) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-
-    const message = chatMessages.find((msg) => msg.id === messageId);
-    if (!message) {
-      return res.status(404).json({ error: "Message not found" });
-    }
-
-    const report = {
-      id: `report_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-      messageId,
-      reason,
-      reportedBy,
-      timestamp: new Date().toISOString(),
-      status: "pending",
-    };
-
-    chatReports.push(report);
-
-    message.reported = true;
-    message.reportCount = (message.reportCount || 0) + 1;
-
-    res.json({ report });
-  });
-
-  // ── Profile / Settings ────────────────────────────────────────────────
-  app.get("/api/settings", (req: Request, res: Response) => {
-    const session = getUserSession(req);
-    if (!session) return res.status(401).json({ error: "Not authenticated" });
-    const profile = storage.getProfile(session.userId);
-    return res.json(profile);
-  });
-
-  app.put("/api/settings", (req: Request, res: Response) => {
-    const session = getUserSession(req);
-    if (!session) return res.status(401).json({ error: "Not authenticated" });
-    const { bio, avatarColor } = req.body;
+    const { bio, avatarColor, email } = req.body;
     const updates: any = {};
     if (typeof bio === "string") updates.bio = bio.slice(0, 300);
     if (typeof avatarColor === "string" && /^#[0-9a-fA-F]{6}$/.test(avatarColor)) updates.avatarColor = avatarColor;
-    const profile = storage.updateProfile(session.userId, updates);
+    const profile = await storage.updateProfile(session.userId, updates);
+    // Update email only if provided and valid (owner exempt from requirement)
+    if (typeof email === "string") {
+      if (email === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        await storage.setUserEmail(session.userId, email);
+      }
+    }
     return res.json(profile);
   });
 
-  // ── User-created Games ─────────────────────────────────────────────────
-  app.post("/api/games", (req: Request, res: Response) => {
+  // ── User rank ──────────────────────────────────────────────────────────
+  app.get("/api/user/rank/:username", async (req: Request, res: Response) => {
+    const rank = await getUserRank(req.params.username);
+    return res.json({ username: req.params.username, rank });
+  });
+
+  app.get("/api/user/banned/:username", async (req: Request, res: Response) => {
+    const isBanned = await storage.isBanned(req.params.username);
+    return res.json({ username: req.params.username, isBanned });
+  });
+
+  // ── Follows ────────────────────────────────────────────────────────────
+  app.post("/api/follow/:username", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    const { title, description, engineType, code } = req.body;
+    const targetUser = await storage.getUserByUsername(req.params.username);
+    if (!targetUser) return res.status(404).json({ error: "User not found" });
+    if (targetUser.id === session.userId) return res.status(400).json({ error: "Cannot follow yourself" });
+    await storage.follow(session.userId, targetUser.id);
+    // Social achievement
+    const count = await storage.getFollowerCount(targetUser.id);
+    if (count >= 10) await storage.grantAchievement(targetUser.id, "social");
+    return res.json({ success: true, following: true });
+  });
+
+  app.delete("/api/follow/:username", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const targetUser = await storage.getUserByUsername(req.params.username);
+    if (!targetUser) return res.status(404).json({ error: "User not found" });
+    await storage.unfollow(session.userId, targetUser.id);
+    return res.json({ success: true, following: false });
+  });
+
+  app.get("/api/follow/:username/status", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.json({ following: false });
+    const targetUser = await storage.getUserByUsername(req.params.username);
+    if (!targetUser) return res.json({ following: false });
+    const following = await storage.isFollowing(session.userId, targetUser.id);
+    return res.json({ following });
+  });
+
+  // ── Direct Messages ────────────────────────────────────────────────────
+  app.get("/api/messages", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const inbox = await storage.getInbox(session.userId);
+    return res.json({ inbox });
+  });
+
+  app.get("/api/messages/:username", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const other = await storage.getUserByUsername(req.params.username);
+    if (!other) return res.status(404).json({ error: "User not found" });
+    await storage.markDMsRead(other.id, session.userId);
+    const messages = await storage.getDMConversation(session.userId, other.id);
+    return res.json({ messages });
+  });
+
+  app.post("/api/messages/:username", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const { text } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: "Message text required" });
+    const other = await storage.getUserByUsername(req.params.username);
+    if (!other) return res.status(404).json({ error: "User not found" });
+    if (other.id === session.userId) return res.status(400).json({ error: "Cannot message yourself" });
+    const dm = await storage.sendDM(session.userId, other.id, session.username, other.username, text.trim().slice(0, 1000));
+    return res.json({ message: dm });
+  });
+
+  app.get("/api/messages/unread/count", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const count = await storage.getUnreadDMCount(session.userId);
+    return res.json({ count });
+  });
+
+  // ── Games ──────────────────────────────────────────────────────────────
+  app.post("/api/games", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const { title, description, engineType, code, tags, thumbnail } = req.body;
     if (!title || !engineType) return res.status(400).json({ error: "Title and engine type required" });
     if (!["2d", "2.5d", "3d"].includes(engineType)) return res.status(400).json({ error: "Invalid engine type" });
-    const game = storage.createGame({
-      title: String(title).slice(0, 60),
-      description: String(description || "").slice(0, 300),
-      engineType,
-      code: String(code || ""),
-      isPublic: false,
-      authorId: session.userId,
-      authorUsername: session.username,
+    const parsedTags = Array.isArray(tags) ? tags.slice(0, 5).map((t: string) => String(t).slice(0, 20)) : [];
+    const game = await storage.createGame({
+      title: String(title).slice(0, 60), description: String(description || "").slice(0, 300),
+      engineType, code: String(code || ""), isPublic: false,
+      authorId: session.userId, authorUsername: session.username,
+      tags: parsedTags, thumbnail: thumbnail || null,
+      likeCount: 0, playCount: 0,
     });
     logAuditAction("create_game", { gameId: game.id, title: game.title, author: session.username });
+    // First game achievement
+    const myGames = await storage.getGamesByUser(session.userId);
+    if (myGames.length === 1) await storage.grantAchievement(session.userId, "first_game");
     return res.json({ game });
   });
 
-  app.get("/api/games/public", (_req: Request, res: Response) => {
-    const games = storage.getPublicGames().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  app.get("/api/games/public", async (_req: Request, res: Response) => {
+    const games = await storage.getPublicGames();
     return res.json({ games });
   });
 
-  app.get("/api/games/my", (req: Request, res: Response) => {
+  app.get("/api/games/my", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    const games = storage.getGamesByUser(session.userId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const games = await storage.getGamesByUser(session.userId);
     return res.json({ games });
   });
 
-  app.get("/api/games/:gameId", (req: Request, res: Response) => {
-    const game = storage.getGame(req.params.gameId);
+  app.get("/api/games/:gameId", async (req: Request, res: Response) => {
+    const game = await storage.getGame(req.params.gameId);
     if (!game) return res.status(404).json({ error: "Game not found" });
     const session = getUserSession(req);
-    if (!game.isPublic && (!session || session.userId !== game.authorId) && !isAdmin(session?.username || "")) {
+    const adminCheck = session ? await isAdmin(session.username) : false;
+    if (!game.isPublic && (!session || session.userId !== game.authorId) && !adminCheck) {
       return res.status(403).json({ error: "Game is private" });
     }
     return res.json({ game });
   });
 
-  app.put("/api/games/:gameId", (req: Request, res: Response) => {
+  app.put("/api/games/:gameId", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    const game = storage.getGame(req.params.gameId);
+    const game = await storage.getGame(req.params.gameId);
     if (!game) return res.status(404).json({ error: "Game not found" });
-    if (game.authorId !== session.userId && !isAdmin(session.username)) {
-      return res.status(403).json({ error: "Not your game" });
-    }
-    const { title, description, code } = req.body;
+    const adminCheck = await isAdmin(session.username);
+    if (game.authorId !== session.userId && !adminCheck) return res.status(403).json({ error: "Not your game" });
+    const { title, description, code, tags, thumbnail } = req.body;
     const updates: any = {};
     if (typeof title === "string") updates.title = title.slice(0, 60);
     if (typeof description === "string") updates.description = description.slice(0, 300);
     if (typeof code === "string") updates.code = code;
-    const updated = storage.updateGame(req.params.gameId, updates);
+    if (Array.isArray(tags)) updates.tags = tags.slice(0, 5).map((t: string) => String(t).slice(0, 20));
+    if (thumbnail !== undefined) updates.thumbnail = thumbnail;
+    const updated = await storage.updateGame(req.params.gameId, updates);
     return res.json({ game: updated });
   });
 
-  app.post("/api/games/:gameId/publish", (req: Request, res: Response) => {
+  app.post("/api/games/:gameId/publish", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    const game = storage.getGame(req.params.gameId);
+    const game = await storage.getGame(req.params.gameId);
     if (!game) return res.status(404).json({ error: "Game not found" });
-    if (game.authorId !== session.userId && !isAdmin(session.username)) {
-      return res.status(403).json({ error: "Not your game" });
-    }
+    const adminCheck = await isAdmin(session.username);
+    if (game.authorId !== session.userId && !adminCheck) return res.status(403).json({ error: "Not your game" });
     const isPublic = req.body.isPublic !== false;
-    const updated = storage.updateGame(req.params.gameId, { isPublic });
-    // Grant premium on first publish
+    const updated = await storage.updateGame(req.params.gameId, { isPublic });
     let premiumGranted = false;
     if (isPublic) {
-      const profile = storage.getProfile(session.userId);
+      const profile = await storage.getProfile(session.userId);
       if (!profile.isPremium) {
-        storage.grantPremium(session.userId);
+        await storage.grantPremium(session.userId);
         premiumGranted = true;
         logAuditAction("premium_granted", { username: session.username, reason: "first_publish" });
       }
+      await storage.grantAchievement(session.userId, "publisher");
     }
     return res.json({ game: updated, premiumGranted });
   });
 
-  app.delete("/api/games/:gameId", (req: Request, res: Response) => {
+  app.delete("/api/games/:gameId", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    const game = storage.getGame(req.params.gameId);
+    const game = await storage.getGame(req.params.gameId);
     if (!game) return res.status(404).json({ error: "Game not found" });
-    if (game.authorId !== session.userId && !isAdmin(session.username)) {
-      return res.status(403).json({ error: "Not your game" });
-    }
-    storage.deleteGame(req.params.gameId);
+    const adminCheck = await isAdmin(session.username);
+    if (game.authorId !== session.userId && !adminCheck) return res.status(403).json({ error: "Not your game" });
+    await storage.deleteGame(req.params.gameId);
     logAuditAction("delete_user_game", { gameId: req.params.gameId, title: game.title, by: session.username });
     return res.json({ success: true });
   });
 
-  // ── AI Game Assistant ─────────────────────────────────────────────────
-  const openai = process.env.OPENAI_API_KEY
-    ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    : null;
+  // ── Game Likes ─────────────────────────────────────────────────────────
+  app.post("/api/games/:gameId/like", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const game = await storage.getGame(req.params.gameId);
+    if (!game || !game.isPublic) return res.status(404).json({ error: "Game not found" });
+    const alreadyLiked = await storage.hasLiked(session.userId, req.params.gameId);
+    if (alreadyLiked) {
+      await storage.unlikeGame(session.userId, req.params.gameId);
+      const updated = await storage.getGame(req.params.gameId);
+      return res.json({ liked: false, likeCount: updated?.likeCount || 0 });
+    }
+    await storage.likeGame(session.userId, req.params.gameId);
+    const updated = await storage.getGame(req.params.gameId);
+    // Popular achievement for author
+    if ((updated?.likeCount || 0) >= 10) await storage.grantAchievement(game.authorId, "popular");
+    return res.json({ liked: true, likeCount: updated?.likeCount || 0 });
+  });
+
+  app.get("/api/games/:gameId/like", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.json({ liked: false });
+    const liked = await storage.hasLiked(session.userId, req.params.gameId);
+    return res.json({ liked });
+  });
+
+  // ── Play Count ─────────────────────────────────────────────────────────
+  app.post("/api/games/:gameId/play", async (req: Request, res: Response) => {
+    await storage.incrementPlayCount(req.params.gameId).catch(() => {});
+    return res.json({ success: true });
+  });
+
+  // ── Comments ───────────────────────────────────────────────────────────
+  app.get("/api/games/:gameId/comments", async (req: Request, res: Response) => {
+    const comments = await storage.getComments(req.params.gameId);
+    return res.json({ comments });
+  });
+
+  app.post("/api/games/:gameId/comments", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const { text } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: "Comment text required" });
+    const game = await storage.getGame(req.params.gameId);
+    if (!game || !game.isPublic) return res.status(404).json({ error: "Game not found" });
+    const comment = await storage.addComment(req.params.gameId, session.userId, session.username, text.trim().slice(0, 500));
+    // Commentator achievement
+    const userComments = await storage.getComments(req.params.gameId);
+    if (userComments.filter(c => c.userId === session.userId).length === 1) {
+      await storage.grantAchievement(session.userId, "commenter");
+    }
+    return res.json({ comment });
+  });
+
+  app.delete("/api/games/:gameId/comments/:commentId", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const adminCheck = await isAdmin(session.username);
+    if (!adminCheck) return res.status(403).json({ error: "Moderator access required" });
+    await storage.deleteComment(Number(req.params.commentId));
+    return res.json({ success: true });
+  });
+
+  // ── Game Reports ───────────────────────────────────────────────────────
+  app.post("/api/games/:gameId/report", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const { reason } = req.body;
+    if (!reason) return res.status(400).json({ error: "Reason required" });
+    const report = await storage.reportGame(req.params.gameId, session.username, reason);
+    return res.json({ report });
+  });
+
+  // ── Version History ────────────────────────────────────────────────────
+  app.post("/api/games/:gameId/versions", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const game = await storage.getGame(req.params.gameId);
+    if (!game) return res.status(404).json({ error: "Game not found" });
+    if (game.authorId !== session.userId) return res.status(403).json({ error: "Not your game" });
+    const version = await storage.saveGameVersion(req.params.gameId, game.code, game.title, game.description);
+    return res.json({ version });
+  });
+
+  app.get("/api/games/:gameId/versions", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const game = await storage.getGame(req.params.gameId);
+    if (!game || game.authorId !== session.userId) return res.status(403).json({ error: "Not your game" });
+    const versions = await storage.getGameVersions(req.params.gameId);
+    return res.json({ versions });
+  });
+
+  app.post("/api/games/:gameId/versions/:versionId/restore", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const game = await storage.getGame(req.params.gameId);
+    if (!game || game.authorId !== session.userId) return res.status(403).json({ error: "Not your game" });
+    const version = await storage.getGameVersion(Number(req.params.versionId));
+    if (!version) return res.status(404).json({ error: "Version not found" });
+    const updated = await storage.updateGame(req.params.gameId, { code: version.code, title: version.title, description: version.description });
+    return res.json({ game: updated });
+  });
+
+  // ── Chat (REST fallback) ───────────────────────────────────────────────
+  app.get("/api/chat/messages", async (_req: Request, res: Response) => {
+    const messages = await storage.getChatMessages(100);
+    return res.json({ messages });
+  });
+
+  app.post("/api/chat/messages", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "You must be logged in to send messages" });
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: "Message text required" });
+    if (await storage.isBanned(session.username)) return res.status(403).json({ error: "User is banned" });
+    const flagged = containsSwearWords(text);
+    const rank = await getUserRank(session.username);
+    const message = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      username: session.username, rank, text, flagged,
+    };
+    await storage.saveChatMessage(message);
+    const fullMsg = { ...message, timestamp: new Date().toISOString(), reportCount: 0 };
+    broadcast({ type: "message", message: fullMsg });
+    return res.json({ message: fullMsg });
+  });
+
+  app.delete("/api/chat/messages/:messageId", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    if (!(await isAdmin(session.username))) return res.status(403).json({ error: "Moderator access required" });
+    const msg = await storage.getChatMessage(req.params.messageId);
+    if (!msg) return res.status(404).json({ error: "Message not found" });
+    if ((await isOwner(msg.username)) && !(await isOwner(session.username))) {
+      return res.status(403).json({ error: "Only the owner can delete the owner's messages." });
+    }
+    await storage.deleteChatMessage(req.params.messageId);
+    broadcast({ type: "delete", messageId: req.params.messageId });
+    logAuditAction("delete_chat_message", { messageId: req.params.messageId, deletedBy: session.username });
+    return res.json({ success: true });
+  });
+
+  app.post("/api/chat/reports", async (req: Request, res: Response) => {
+    const { messageId, reason, reportedBy } = req.body;
+    if (!messageId || !reason || !reportedBy) return res.status(400).json({ error: "Missing required fields" });
+    const msg = await storage.getChatMessage(messageId);
+    if (!msg) return res.status(404).json({ error: "Message not found" });
+    const id = `report_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const report = await storage.addChatReport(id, messageId, reason, reportedBy);
+    await storage.incrementChatReportCount(messageId);
+    return res.json({ report });
+  });
+
+  app.get("/api/chat/reports", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const reports = await storage.getChatReports();
+    return res.json({ reports });
+  });
+
+  app.get("/api/admin/chat/users", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const messages = await storage.getChatMessages(500);
+    const userMap = new Map<string, any>();
+    const bannedSet = new Set((await storage.getBannedUsers()).map((u: any) => u.username.toLowerCase()));
+    for (const msg of messages) {
+      const key = msg.username.toLowerCase();
+      if (!userMap.has(key)) userMap.set(key, { username: msg.username, messageCount: 0, lastMessageAt: msg.timestamp, isBanned: bannedSet.has(key) });
+      const u = userMap.get(key)!;
+      u.messageCount++;
+      u.lastMessageAt = msg.timestamp;
+    }
+    return res.json({ users: Array.from(userMap.values()) });
+  });
+
+  // ── Admin stats & games ────────────────────────────────────────────────
+  app.get("/api/admin/stats", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const totalUsers = await storage.getUserCount();
+    const publicGames = await storage.getPublicGames();
+    const stats = { totalUsers, totalGames: 4 + publicGames.length, totalPlays: publicGames.reduce((s, g) => s + g.playCount, 0) };
+    const gameStats = [
+      { title: "Snake", plays: 0, averageTime: 0 }, { title: "Memory Match", plays: 0, averageTime: 0 },
+      { title: "Platformer", plays: 0, averageTime: 0 }, { title: "Bloxd.io (Scratch Edition)", plays: 0, averageTime: 0 },
+    ];
+    return res.json({ stats, gameStats });
+  });
+
+  app.get("/api/admin/games", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    return res.json({ games: Array.from(adminGames.values()) });
+  });
+
+  app.delete("/api/admin/games/:gameId", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const { adminPassword } = req.body;
+    if (adminPassword !== ADMIN_PASSWORD) return res.status(403).json({ error: "Invalid admin password." });
+    const { gameId } = req.params;
+    if (adminGames.has(gameId)) {
+      adminGames.delete(gameId);
+      logAuditAction("delete_game", { gameId });
+      return res.json({ success: true });
+    }
+    // Try user games
+    const userGame = await storage.getGame(gameId);
+    if (userGame) {
+      await storage.deleteGame(gameId);
+      logAuditAction("delete_user_game_admin", { gameId });
+      return res.json({ success: true });
+    }
+    return res.status(404).json({ error: "Game not found" });
+  });
+
+  app.post("/api/admin/games/:gameId/version", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const { gameId } = req.params;
+    const { versionNumber } = req.body;
+    if (!versionNumber) return res.status(400).json({ error: "Version number required" });
+    const game = adminGames.get(gameId);
+    if (!game) return res.status(404).json({ error: "Game not found" });
+    game.versions.push({ versionNumber, uploadedAt: new Date().toISOString(), size: 0, isActive: false });
+    return res.json({ game });
+  });
+
+  app.post("/api/admin/games/:gameId/version/:versionNumber/activate", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const { gameId, versionNumber } = req.params;
+    const game = adminGames.get(gameId);
+    if (!game) return res.status(404).json({ error: "Game not found" });
+    game.versions.forEach((v: any) => { v.isActive = v.versionNumber === versionNumber; });
+    game.currentVersion = versionNumber;
+    return res.json({ game });
+  });
+
+  app.post("/api/admin/games/:gameId/upload", upload.single("file"), (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const { gameId } = req.params;
+    const { versionNumber } = req.body as { versionNumber?: string };
+    if (!versionNumber) { if (req.file) fs.unlinkSync(req.file.path); return res.status(400).json({ error: "Version number required" }); }
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    const game = adminGames.get(gameId);
+    if (!game) { fs.unlinkSync(req.file.path); return res.status(404).json({ error: "Game not found" }); }
+    game.versions.push({ versionNumber, uploadedAt: new Date().toISOString(), size: req.file.size, isActive: false, filename: req.file.filename, originalName: req.file.originalname });
+    logAuditAction("upload_game_file", { gameId, versionNumber, size: req.file.size });
+    return res.json({ game });
+  });
+
+  app.get("/api/admin/games/:gameId/download/:filename", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const filePath = path.join(UPLOADS_DIR, path.basename(req.params.filename));
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
+    return res.download(filePath);
+  });
+
+  // ── Admin: Bans ────────────────────────────────────────────────────────
+  app.get("/api/admin/banned-users", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const bannedUsers = await storage.getBannedUsers();
+    return res.json({ bannedUsers });
+  });
+
+  app.post("/api/admin/ban-user", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const sessionId = req.cookies?.sessionId || "";
+    if (!checkRateLimit(`ban-user-${sessionId}`)) return res.status(429).json({ error: "Too many requests." });
+    const { username, reason, adminPassword } = req.body;
+    if (!username || !reason) return res.status(400).json({ error: "Username and reason required" });
+    if (adminPassword !== ADMIN_PASSWORD) return res.status(403).json({ error: "Invalid admin password." });
+    if (await isOwner(username)) return res.status(403).json({ error: "The owner account cannot be banned." });
+    const session = getUserSession(req);
+    const requesterRank = session ? await getUserRank(session.username) : "user";
+    if ((await getUserRank(username)) === "developer" && requesterRank !== "owner") {
+      return res.status(403).json({ error: "Only the owner can ban developer-ranked accounts." });
+    }
+    const id = `user_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const bannedUser = await storage.banUser(id, username, reason, session?.username || "admin");
+    logAuditAction("ban_user", { targetUser: username, reason, bannedBy: session?.username });
+    return res.json({ bannedUser });
+  });
+
+  app.post("/api/admin/unban-user/:userId", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    if (!checkRateLimit(`unban-${req.cookies?.sessionId || ""}`)) return res.status(429).json({ error: "Too many requests." });
+    const { adminPassword } = req.body;
+    if (adminPassword !== ADMIN_PASSWORD) return res.status(403).json({ error: "Invalid admin password." });
+    const ok = await storage.unbanById(req.params.userId);
+    if (!ok) return res.status(404).json({ error: "User not found" });
+    logAuditAction("unban_user", { userId: req.params.userId });
+    return res.json({ success: true });
+  });
+
+  // ── Admin: Rank Management ─────────────────────────────────────────────
+  app.get("/api/admin/ranked-users", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    if (!(await isOwner(session.username))) return res.status(403).json({ error: "Owner access required" });
+    const allUsers = await storage.getAllUsers();
+    const result = await Promise.all(allUsers.map(async (u: any) => ({
+      id: u.id, username: u.username,
+      rank: await getUserRank(u.username),
+      joinedAt: await storage.getUserJoinDate(u.id),
+    })));
+    return res.json({ users: result });
+  });
+
+  app.post("/api/admin/set-rank", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    if (!(await isOwner(session.username))) return res.status(403).json({ error: "Only the owner can change developer ranks." });
+    const { username, rank } = req.body;
+    if (!username) return res.status(400).json({ error: "Username required" });
+    if (!["developer", "admin", "user"].includes(rank)) return res.status(400).json({ error: "Invalid rank." });
+    if (await isOwner(username)) return res.status(403).json({ error: "Cannot change the owner's rank." });
+    await storage.setUserRankInDB(username.toLowerCase(), rank);
+    logAuditAction("set_rank", { targetUser: username, newRank: rank, by: session.username });
+    return res.json({ success: true, username, rank });
+  });
+
+  // ── Admin: Chat Reports ────────────────────────────────────────────────
+  app.post("/api/admin/chat/reports/:reportId/action", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const { reportId } = req.params;
+    const { action, banUser: shouldBan } = req.body;
+    await storage.updateChatReport(reportId, action);
+    if (action === "delete_message") {
+      const reports = await storage.getChatReports();
+      const report = reports.find((r: any) => r.id === reportId);
+      if (report) {
+        const msg = await storage.getChatMessage(report.messageId);
+        if (msg) { await storage.deleteChatMessage(report.messageId); broadcast({ type: "delete", messageId: report.messageId }); }
+      }
+    }
+    if (shouldBan) {
+      const reports = await storage.getChatReports();
+      const report = reports.find((r: any) => r.id === reportId);
+      if (report) {
+        const msg = await storage.getChatMessage(report.messageId);
+        if (msg) await storage.banUser(`user_${Date.now()}`, msg.username, "Chat report", "admin");
+      }
+    }
+    return res.json({ success: true });
+  });
+
+  // ── Admin: Game Reports ────────────────────────────────────────────────
+  app.get("/api/admin/game-reports", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    const reports = await storage.getGameReports();
+    return res.json({ reports });
+  });
+
+  app.post("/api/admin/game-reports/:id/resolve", async (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    await storage.resolveGameReport(Number(req.params.id), req.body.status || "resolved");
+    return res.json({ success: true });
+  });
+
+  // ── Admin: Audit Log ───────────────────────────────────────────────────
+  app.get("/api/admin/audit-log", (req: Request, res: Response) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: "Not authenticated" });
+    return res.json({ auditLog: auditLog.slice(-100) });
+  });
+
+  // ── AI Assistant ───────────────────────────────────────────────────────
+  const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
   app.post("/api/ai/assist", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-
-    const allowed = storage.incrementAiUsage(session.userId);
+    const allowed = await storage.incrementAiUsage(session.userId);
     if (!allowed) {
-      const profile = storage.getProfile(session.userId);
+      const profile = await storage.getProfile(session.userId);
       const limit = profile.isPremium ? 50 : 5;
       return res.status(429).json({ error: `Daily AI limit reached (${limit}/day). ${!profile.isPremium ? "Publish a game to unlock Premium and get 50 requests/day!" : ""}` });
     }
-
     const { prompt, code, engineType } = req.body;
     if (!prompt) return res.status(400).json({ error: "Prompt required" });
-
     if (openai) {
       try {
-        const systemPrompt = `You are a game development assistant for the GameNexus platform. You help users write HTML5 game code.
-The game engine is "${engineType}" (${engineType === "3d" ? "Three.js based" : engineType === "2.5d" ? "isometric canvas" : "2D canvas"}).
-The game code is a complete standalone HTML file. Keep responses concise and focused.
-When asked to add or modify code, return ONLY the complete updated HTML, no explanations.
-When asked a question, answer briefly and helpfully.`;
-
         const completion = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
-            { role: "system", content: systemPrompt },
+            { role: "system", content: `You are a game development assistant for GameNexus. You help users write HTML5 game code. Engine: "${engineType}". Return ONLY complete HTML when asked to modify code.` },
             { role: "user", content: `Current code:\n\`\`\`html\n${code || "(no code yet)"}\n\`\`\`\n\nRequest: ${prompt}` },
           ],
           max_tokens: 2000,
         });
-        const reply = completion.choices[0]?.message?.content || "I couldn't generate a response.";
-        return res.json({ reply, usedAI: true });
-      } catch (err: any) {
-        console.error("OpenAI error:", err.message);
-        // Fall through to template response
-      }
+        return res.json({ reply: completion.choices[0]?.message?.content || "No response.", usedAI: true });
+      } catch (err: any) { console.error("OpenAI error:", err.message); }
     }
-
-    // Template-based fallback
-    const reply = getTemplateResponse(prompt, engineType, code);
-    return res.json({ reply, usedAI: false });
+    return res.json({ reply: getTemplateResponse(prompt, engineType, code), usedAI: false });
   });
 
-  app.get("/api/ai/status", (req: Request, res: Response) => {
+  app.get("/api/ai/status", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
-    const profile = storage.getProfile(session.userId);
+    const profile = await storage.getProfile(session.userId);
     const today = new Date().toDateString();
     const usage = profile.aiUsageDate === today ? profile.aiUsageToday : 0;
     const limit = profile.isPremium ? 50 : 5;
     return res.json({ usage, limit, isPremium: profile.isPremium, hasOpenAI: !!openai });
-  });
-
-  app.get("/api/admin/audit-log", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    res.json({ auditLog: auditLog.slice(-100) }); // Return last 100 actions
-  });
-
-  app.post("/api/admin/chat/reports/:reportId/action", (req: Request, res: Response) => {
-    if (!isAuthenticated(req)) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const { reportId } = req.params;
-    const { action, banUser } = req.body;
-
-    const report = chatReports.find((r) => r.id === reportId);
-    if (!report) {
-      return res.status(404).json({ error: "Report not found" });
-    }
-
-    report.status = action;
-
-    if (action === "delete_message") {
-      const messageIndex = chatMessages.findIndex((msg) => msg.id === report.messageId);
-      if (messageIndex !== -1) {
-        chatMessages.splice(messageIndex, 1);
-      }
-    }
-
-    if (banUser) {
-      const message = chatMessages.find((msg) => msg.id === report.messageId);
-      if (message) {
-        const normalizedUsername = message.username.toLowerCase();
-        bannedUsers.set(normalizedUsername, { 
-          id: `user_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-          username: message.username,
-          bannedAt: new Date().toISOString() 
-        });
-      }
-    }
-
-    res.json({ report });
   });
 
   return httpServer;

@@ -21,6 +21,7 @@ import Dashboard from "./pages/Dashboard";
 import GameEditor from "./pages/GameEditor";
 import SharedGame from "./pages/SharedGame";
 import AccountSettings from "./pages/AccountSettings";
+import Messages from "./pages/Messages";
 import NotFound from "./pages/not-found";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -52,6 +53,8 @@ function AppRoutes() {
       <Route path="/editor/:gameId" element={<ProtectedRoute><GameEditor /></ProtectedRoute>} />
       <Route path="/play/:gameId" element={<SharedGame />} />
       <Route path="/settings" element={<ProtectedRoute><AccountSettings /></ProtectedRoute>} />
+      <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
+      <Route path="/messages/:username" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

@@ -6,8 +6,9 @@ interface AuthState {
   rank: string;
   isPremium: boolean;
   loading: boolean;
+  unreadDMs: number;
   login: (username: string, password: string) => Promise<{ error?: string }>;
-  register: (username: string, password: string) => Promise<{ error?: string }>;
+  register: (username: string, password: string, email?: string) => Promise<{ error?: string }>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
 }
@@ -18,6 +19,7 @@ export const AuthContext = createContext<AuthState>({
   rank: "user",
   isPremium: false,
   loading: true,
+  unreadDMs: 0,
   login: async () => ({}),
   register: async () => ({}),
   logout: async () => {},
@@ -34,6 +36,7 @@ export function useAuthProvider(): AuthState {
   const [rank, setRank] = useState<string>("user");
   const [isPremium, setIsPremium] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [unreadDMs, setUnreadDMs] = useState(0);
   const initialized = useRef(false);
 
   const applyAuthData = (data: any) => {
@@ -41,6 +44,7 @@ export function useAuthProvider(): AuthState {
     setIsLoggedIn(true);
     setRank(data.rank || "user");
     setIsPremium(data.isPremium || false);
+    setUnreadDMs(data.unreadDMs || 0);
   };
 
   const refreshAuth = async () => {
@@ -76,12 +80,12 @@ export function useAuthProvider(): AuthState {
     }
   };
 
-  const register = async (usernameInput: string, password: string): Promise<{ error?: string }> => {
+  const register = async (usernameInput: string, password: string, email?: string): Promise<{ error?: string }> => {
     try {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: usernameInput, password }),
+        body: JSON.stringify({ username: usernameInput, password, email: email || undefined }),
       });
       const data = await res.json();
       if (!res.ok) return { error: data.error || "Registration failed" };
@@ -98,7 +102,8 @@ export function useAuthProvider(): AuthState {
     setIsLoggedIn(false);
     setRank("user");
     setIsPremium(false);
+    setUnreadDMs(0);
   };
 
-  return { username, isLoggedIn, rank, isPremium, loading, login, register, logout, refreshAuth };
+  return { username, isLoggedIn, rank, isPremium, loading, unreadDMs, login, register, logout, refreshAuth };
 }

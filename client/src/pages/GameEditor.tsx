@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Save, Globe, Lock, Play, Bot, Send, X, ChevronDown, Code2, Layers, Box,
-  Zap, Share2
+  ArrowLeft, Save, Globe, Lock, Play, Bot, Send, X, Code2, Layers, Box,
+  Zap, Share2, History, Clock, RotateCcw, Tag, CheckCircle2
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
@@ -71,29 +71,15 @@ const DEFAULT_CODE: Record<EngineType, string> = {
 <script>
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
-  // Isometric helpers
-  function toIso(x, y) {
-    return { x: (x - y) * 32 + canvas.width / 2, y: (x + y) * 16 + 80 };
-  }
-  // Tilemap (0 = empty, 1 = tile)
+  function toIso(x, y) { return { x: (x - y) * 32 + canvas.width / 2, y: (x + y) * 16 + 80 }; }
   const map = [];
   for (let r = 0; r < 8; r++) { map[r] = []; for (let c = 0; c < 8; c++) map[r][c] = 1; }
   function drawTile(row, col) {
     const { x, y } = toIso(col, row);
-    ctx.beginPath();
-    ctx.moveTo(x, y - 16);
-    ctx.lineTo(x + 32, y);
-    ctx.lineTo(x, y + 16);
-    ctx.lineTo(x - 32, y);
-    ctx.closePath();
-    ctx.fillStyle = '#1e3a5f';
-    ctx.fill();
-    ctx.strokeStyle = '#2563eb';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, y - 16); ctx.lineTo(x + 32, y); ctx.lineTo(x, y + 16); ctx.lineTo(x - 32, y); ctx.closePath();
+    ctx.fillStyle = '#1e3a5f'; ctx.fill(); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1; ctx.stroke();
   }
   const player = { row: 3, col: 3 };
-  const keys = {};
   document.addEventListener('keydown', e => {
     if (e.code === 'ArrowLeft'  || e.code === 'KeyA') player.col = Math.max(0, player.col - 1);
     if (e.code === 'ArrowRight' || e.code === 'KeyD') player.col = Math.min(7, player.col + 1);
@@ -102,22 +88,14 @@ const DEFAULT_CODE: Record<EngineType, string> = {
   });
   function drawPlayer() {
     const { x, y } = toIso(player.col, player.row);
-    ctx.fillStyle = '#818cf8';
-    ctx.beginPath();
-    ctx.arc(x, y - 24, 14, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#c7d2fe';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    ctx.fillStyle = '#818cf8'; ctx.beginPath(); ctx.arc(x, y - 24, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#c7d2fe'; ctx.lineWidth = 2; ctx.stroke();
   }
   function loop() {
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) drawTile(r, c);
     drawPlayer();
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '13px monospace';
-    ctx.fillText('WASD / Arrow keys to move', 10, canvas.height - 14);
+    ctx.fillStyle = '#94a3b8'; ctx.font = '13px monospace'; ctx.fillText('WASD / Arrow keys to move', 10, canvas.height - 14);
     requestAnimationFrame(loop);
   }
   loop();
@@ -135,44 +113,24 @@ const DEFAULT_CODE: Record<EngineType, string> = {
 </head>
 <body>
 <script>
-  // Scene setup
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0f172a);
   scene.fog = new THREE.Fog(0x0f172a, 20, 60);
   const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
-  camera.position.set(0, 8, 16);
-  camera.lookAt(0, 0, 0);
+  camera.position.set(0, 8, 16); camera.lookAt(0, 0, 0);
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.shadowMap.enabled = true;
+  renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true;
   document.body.appendChild(renderer.domElement);
-  // Lighting
   scene.add(new THREE.AmbientLight(0x334155, 1));
   const sun = new THREE.DirectionalLight(0xffffff, 2);
-  sun.position.set(10, 20, 10);
-  sun.castShadow = true;
-  scene.add(sun);
-  // Ground
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(30, 30),
-    new THREE.MeshLambertMaterial({ color: 0x1e293b })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  scene.add(ground);
-  // Player cube
-  const player = new THREE.Mesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshLambertMaterial({ color: 0x818cf8 })
-  );
-  player.position.set(0, 0.5, 0);
-  player.castShadow = true;
-  scene.add(player);
-  // Keys
+  sun.position.set(10, 20, 10); sun.castShadow = true; scene.add(sun);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshLambertMaterial({ color: 0x1e293b }));
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+  const player = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: 0x818cf8 }));
+  player.position.set(0, 0.5, 0); player.castShadow = true; scene.add(player);
   const keys = {};
   document.addEventListener('keydown', e => keys[e.code] = true);
   document.addEventListener('keyup',   e => keys[e.code] = false);
-  // Game loop
   const speed = 0.08;
   function animate() {
     requestAnimationFrame(animate);
@@ -180,16 +138,13 @@ const DEFAULT_CODE: Record<EngineType, string> = {
     if (keys['ArrowRight'] || keys['KeyD']) player.position.x += speed;
     if (keys['ArrowUp']    || keys['KeyW']) player.position.z -= speed;
     if (keys['ArrowDown']  || keys['KeyS']) player.position.z += speed;
-    // Follow camera
     camera.position.set(player.position.x, player.position.y + 8, player.position.z + 16);
     camera.lookAt(player.position);
     renderer.render(scene, camera);
   }
   animate();
   window.addEventListener('resize', () => {
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
   });
 </script>
 </body>
@@ -197,6 +152,7 @@ const DEFAULT_CODE: Record<EngineType, string> = {
 };
 
 interface ChatMsg { role: "user" | "ai"; content: string; }
+interface GameVersion { id: number; title: string; description: string; savedAt: string; }
 
 export default function GameEditor() {
   const { gameId } = useParams<{ gameId?: string }>();
@@ -212,7 +168,21 @@ export default function GameEditor() {
   const [loadedGameId, setLoadedGameId] = useState<string | null>(gameId || null);
   const [previewKey, setPreviewKey] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
 
+  // Autosave
+  const [isDirty, setIsDirty] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const lastSavedCode = useRef(code);
+  const lastSavedTitle = useRef(title);
+
+  // Version history
+  const [showHistory, setShowHistory] = useState(false);
+  const [versions, setVersions] = useState<GameVersion[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // AI
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInput, setAiInput] = useState("");
   const [aiMessages, setAiMessages] = useState<ChatMsg[]>([]);
@@ -240,6 +210,9 @@ export default function GameEditor() {
         setCode(g.code || DEFAULT_CODE[g.engineType as EngineType]);
         setIsPublic(g.isPublic);
         setLoadedGameId(g.id);
+        setTags(g.tags || []);
+        lastSavedCode.current = g.code || "";
+        lastSavedTitle.current = g.title;
       })
       .catch(() => {});
   }, [gameId]);
@@ -248,40 +221,75 @@ export default function GameEditor() {
     if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: "smooth" });
   }, [aiMessages]);
 
+  // Track dirty state
+  useEffect(() => {
+    const dirty = code !== lastSavedCode.current || title !== lastSavedTitle.current;
+    setIsDirty(dirty);
+    if (dirty) setAutoSaveStatus("idle");
+  }, [code, title]);
+
+  // Autosave every 2 minutes
+  useEffect(() => {
+    if (!loadedGameId) return;
+    const interval = setInterval(() => {
+      if (isDirty) {
+        performSave(true);
+      }
+    }, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [loadedGameId, isDirty, code, title, description, tags]);
+
   const handleEngineChange = (e: EngineType) => {
     setEngineType(e);
     if (!loadedGameId) setCode(DEFAULT_CODE[e]);
   };
 
-  const handleSave = async () => {
-    setSaving(true);
+  const performSave = useCallback(async (isAutosave = false) => {
+    if (!isAutosave) setSaving(true);
+    else setAutoSaveStatus("saving");
     try {
       if (loadedGameId) {
         const res = await fetch(`/api/games/${loadedGameId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, description, code }),
+          body: JSON.stringify({ title, description, code, tags }),
         });
-        if (!res.ok) { const d = await res.json(); alert(d.error || "Save failed"); }
+        if (res.ok) {
+          // Save a version snapshot
+          await fetch(`/api/games/${loadedGameId}/versions`, { method: "POST" });
+          lastSavedCode.current = code;
+          lastSavedTitle.current = title;
+          setIsDirty(false);
+          setAutoSaveStatus("saved");
+          setTimeout(() => setAutoSaveStatus("idle"), 3000);
+        } else if (!isAutosave) {
+          const d = await res.json();
+          alert(d.error || "Save failed");
+        }
       } else {
         const res = await fetch("/api/games", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, description, engineType, code }),
+          body: JSON.stringify({ title, description, engineType, code, tags }),
         });
         if (res.ok) {
           const d = await res.json();
           setLoadedGameId(d.game.id);
+          lastSavedCode.current = code;
+          lastSavedTitle.current = title;
+          setIsDirty(false);
           navigate(`/editor/${d.game.id}`, { replace: true });
         } else {
           const d = await res.json();
-          alert(d.error || "Create failed");
+          if (!isAutosave) alert(d.error || "Create failed");
         }
       }
     } finally {
-      setSaving(false);
+      if (!isAutosave) setSaving(false);
     }
-  };
+  }, [loadedGameId, title, description, code, tags, engineType, navigate]);
+
+  const handleSave = () => performSave(false);
 
   const handlePublishToggle = async () => {
     if (!loadedGameId) { alert("Save your game first!"); return; }
@@ -294,6 +302,44 @@ export default function GameEditor() {
       const d = await res.json();
       setIsPublic(d.game.isPublic);
       if (d.premiumGranted) alert("🎉 You've unlocked Premium by publishing your first game!");
+    }
+  };
+
+  const loadVersionHistory = async () => {
+    if (!loadedGameId) return;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/games/${loadedGameId}/versions`);
+      if (res.ok) {
+        const data = await res.json();
+        setVersions(data.versions || []);
+      }
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleShowHistory = () => {
+    setShowHistory(true);
+    loadVersionHistory();
+  };
+
+  const handleRestoreVersion = async (versionId: number) => {
+    if (!loadedGameId) return;
+    if (!confirm("Restore this version? Your current code will be replaced.")) return;
+    const res = await fetch(`/api/games/${loadedGameId}/versions/${versionId}/restore`, { method: "POST" });
+    if (res.ok) {
+      const data = await res.json();
+      setCode(data.game.code);
+      setTitle(data.game.title);
+      setDescription(data.game.description || "");
+      lastSavedCode.current = data.game.code;
+      lastSavedTitle.current = data.game.title;
+      setIsDirty(false);
+      setShowHistory(false);
+      alert("Version restored!");
+    } else {
+      alert("Failed to restore version.");
     }
   };
 
@@ -315,7 +361,6 @@ export default function GameEditor() {
       } else if (res.ok) {
         const reply: string = data.reply || "";
         setAiMessages((prev) => [...prev, { role: "ai", content: reply }]);
-        // If the reply looks like full HTML, offer to apply it
         if (reply.includes("<!DOCTYPE html") || reply.includes("<html")) {
           const cleaned = reply.replace(/```html\s*/gi, "").replace(/```\s*/gi, "").trim();
           setCode(cleaned);
@@ -328,6 +373,24 @@ export default function GameEditor() {
       setAiLoading(false);
     }
   };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      const tag = tagInput.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (tag && tags.length < 5 && !tags.includes(tag)) {
+        setTags([...tags, tag]);
+        setIsDirty(true);
+      }
+      setTagInput("");
+    }
+    if (e.key === "Backspace" && !tagInput && tags.length > 0) {
+      setTags(tags.slice(0, -1));
+      setIsDirty(true);
+    }
+  };
+
+  const removeTag = (tag: string) => { setTags(tags.filter((t) => t !== tag)); setIsDirty(true); };
 
   const engineIcons: Record<EngineType, JSX.Element> = {
     "2d": <Layers size={14} />,
@@ -349,55 +412,62 @@ export default function GameEditor() {
           className="flex-1 bg-transparent text-white font-semibold text-base focus:outline-none border-b border-transparent focus:border-gray-500 transition-colors"
           placeholder="Game title..."
         />
+
+        {/* Autosave indicator */}
+        {loadedGameId && (
+          <span className={`text-xs flex items-center gap-1 ${autoSaveStatus === "saved" ? "text-green-400" : autoSaveStatus === "saving" ? "text-yellow-400" : isDirty ? "text-gray-500" : "text-gray-600"}`}>
+            {autoSaveStatus === "saved" ? <><CheckCircle2 size={11} />Saved</> :
+             autoSaveStatus === "saving" ? <><Clock size={11} className="animate-spin" />Saving...</> :
+             isDirty ? "Unsaved changes" : ""}
+          </span>
+        )}
+
         {/* Engine selector */}
         <div className="flex gap-1 bg-gray-700 rounded-lg p-1">
           {(["2d", "2.5d", "3d"] as EngineType[]).map((e) => (
             <button
               key={e}
               onClick={() => handleEngineChange(e)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                engineType === e ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"
-              }`}
-              title={`${e.toUpperCase()} engine`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${engineType === e ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"}`}
             >
-              {engineIcons[e]}
-              {e.toUpperCase()}
+              {engineIcons[e]}{e.toUpperCase()}
             </button>
           ))}
         </div>
+
         <button
           onClick={() => { setPreviewKey((k) => k + 1); setShowPreview(true); }}
           className="flex items-center gap-1.5 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-green-400 rounded-lg text-sm transition-colors"
         >
-          <Play size={15} />
-          Run
+          <Play size={15} />Run
         </button>
         <button
           onClick={handleSave}
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
         >
-          <Save size={15} />
-          {saving ? "Saving..." : "Save"}
+          <Save size={15} />{saving ? "Saving..." : "Save"}
         </button>
         {loadedGameId && (
-          <button
-            onClick={handlePublishToggle}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
-              isPublic
-                ? "bg-gray-700 text-gray-300 border-gray-600 hover:bg-gray-600"
-                : "bg-green-600/20 text-green-300 border-green-600/40 hover:bg-green-600/40"
-            }`}
-          >
-            {isPublic ? <Lock size={15} /> : <Globe size={15} />}
-            {isPublic ? "Unpublish" : "Publish"}
-          </button>
+          <>
+            <button
+              onClick={handlePublishToggle}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${isPublic ? "bg-gray-700 text-gray-300 border-gray-600 hover:bg-gray-600" : "bg-green-600/20 text-green-300 border-green-600/40 hover:bg-green-600/40"}`}
+            >
+              {isPublic ? <Lock size={15} /> : <Globe size={15} />}
+              {isPublic ? "Unpublish" : "Publish"}
+            </button>
+            <button
+              onClick={handleShowHistory}
+              title="Version history"
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm transition-colors"
+            >
+              <History size={15} />
+            </button>
+          </>
         )}
         {isPublic && loadedGameId && (
-          <Link
-            to={`/play/${loadedGameId}`}
-            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600/20 text-blue-300 border border-blue-600/40 rounded-lg text-sm hover:bg-blue-600/40 transition-colors"
-          >
+          <Link to={`/play/${loadedGameId}`} className="flex items-center gap-1.5 px-3 py-2 bg-blue-600/20 text-blue-300 border border-blue-600/40 rounded-lg text-sm hover:bg-blue-600/40 transition-colors">
             <Share2 size={15} />
           </Link>
         )}
@@ -415,16 +485,38 @@ export default function GameEditor() {
             style={{ tabSize: 2 }}
             placeholder="Write your game code here..."
           />
-          <div className="bg-gray-800 border-t border-gray-700 px-4 py-2 flex items-center gap-4">
+          {/* Bottom bar: description + tags */}
+          <div className="bg-gray-800 border-t border-gray-700 px-4 py-2 space-y-2">
             <input
               type="text"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => { setDescription(e.target.value); setIsDirty(true); }}
               placeholder="Short description (shown publicly)..."
-              className="flex-1 bg-transparent text-gray-400 text-sm focus:outline-none placeholder-gray-600"
+              className="w-full bg-transparent text-gray-400 text-sm focus:outline-none placeholder-gray-600"
               maxLength={300}
             />
-            <span className="text-gray-600 text-xs">{description.length}/300</span>
+            {/* Tags */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Tag size={13} className="text-gray-500 flex-shrink-0" />
+              {tags.map((tag) => (
+                <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded text-purple-300 text-xs">
+                  {tag}
+                  <button onClick={() => removeTag(tag)} className="hover:text-white ml-0.5"><X size={10} /></button>
+                </span>
+              ))}
+              {tags.length < 5 && (
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={handleTagKeyDown}
+                  placeholder={tags.length === 0 ? "Add tags (comma/Enter)..." : "Add tag..."}
+                  className="bg-transparent text-gray-400 text-xs focus:outline-none placeholder-gray-600 min-w-24"
+                  maxLength={20}
+                />
+              )}
+              <span className="text-gray-600 text-xs ml-auto">{tags.length}/5 tags</span>
+            </div>
           </div>
         </div>
 
@@ -433,17 +525,45 @@ export default function GameEditor() {
           <div className="w-1/2 flex flex-col border-l border-gray-700 bg-gray-900">
             <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
               <span className="text-gray-400 text-xs font-medium">Preview</span>
-              <button onClick={() => setShowPreview(false)} className="text-gray-500 hover:text-white">
-                <X size={16} />
-              </button>
+              <button onClick={() => setShowPreview(false)} className="text-gray-500 hover:text-white"><X size={16} /></button>
             </div>
-            <iframe
-              key={previewKey}
-              className="flex-1 w-full"
-              srcDoc={code}
-              sandbox="allow-scripts"
-              title="Game Preview"
-            />
+            <iframe key={previewKey} className="flex-1 w-full" srcDoc={code} sandbox="allow-scripts" title="Game Preview" />
+          </div>
+        )}
+
+        {/* Version history panel */}
+        {showHistory && (
+          <div className="w-72 flex flex-col border-l border-gray-700 bg-gray-800 flex-shrink-0">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+              <span className="text-white font-medium text-sm flex items-center gap-2"><History size={15} />Version History</span>
+              <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-white"><X size={16} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {historyLoading ? (
+                <p className="text-gray-500 text-sm text-center py-6">Loading...</p>
+              ) : versions.length === 0 ? (
+                <div className="text-center py-8 space-y-2">
+                  <Clock size={32} className="text-gray-600 mx-auto" />
+                  <p className="text-gray-500 text-sm">No saved versions yet.</p>
+                  <p className="text-gray-600 text-xs">Versions are saved automatically when you save your game.</p>
+                </div>
+              ) : (
+                versions.map((v) => (
+                  <div key={v.id} className="bg-gray-700/60 border border-gray-600 rounded-xl p-3 space-y-2">
+                    <div>
+                      <p className="text-white text-sm font-medium truncate">{v.title}</p>
+                      <p className="text-gray-500 text-xs">{new Date(v.savedAt).toLocaleString()}</p>
+                    </div>
+                    <button
+                      onClick={() => handleRestoreVersion(v.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/40 text-purple-300 rounded-lg text-xs w-full justify-center transition-colors"
+                    >
+                      <RotateCcw size={12} />Restore this version
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -455,9 +575,7 @@ export default function GameEditor() {
       >
         <Bot size={18} />
         AI Help
-        {aiStatus && (
-          <span className="text-xs opacity-70">{aiStatus.usage}/{aiStatus.limit}</span>
-        )}
+        {aiStatus && <span className="text-xs opacity-70">{aiStatus.usage}/{aiStatus.limit}</span>}
       </button>
 
       {/* AI Chat Drawer */}
@@ -474,9 +592,7 @@ export default function GameEditor() {
                 </span>
               )}
             </div>
-            <button onClick={() => setAiOpen(false)} className="text-gray-400 hover:text-white">
-              <X size={18} />
-            </button>
+            <button onClick={() => setAiOpen(false)} className="text-gray-400 hover:text-white"><X size={18} /></button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {aiMessages.length === 0 && (
@@ -487,13 +603,7 @@ export default function GameEditor() {
             )}
             {aiMessages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[85%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap break-words ${
-                    msg.role === "user"
-                      ? "bg-purple-600 text-white"
-                      : "bg-gray-700 text-gray-200"
-                  }`}
-                >
+                <div className={`max-w-[85%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap break-words ${msg.role === "user" ? "bg-purple-600 text-white" : "bg-gray-700 text-gray-200"}`}>
                   {msg.content}
                 </div>
               </div>

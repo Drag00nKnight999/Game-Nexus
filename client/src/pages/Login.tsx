@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Mail } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
 export default function Login() {
@@ -8,6 +8,7 @@ export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [email, setEmail] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -18,69 +19,44 @@ export default function Login() {
     e.preventDefault();
     setError("");
 
-    if (!username.trim()) {
-      setError("Username cannot be empty");
-      return;
-    }
-    if (!password) {
-      setError("Password cannot be empty");
-      return;
-    }
+    if (!username.trim()) { setError("Username cannot be empty"); return; }
+    if (!password) { setError("Password cannot be empty"); return; }
     if (isRegister) {
-      if (password.length < 6) {
-        setError("Password must be at least 6 characters");
-        return;
-      }
-      if (password !== confirmPassword) {
-        setError("Passwords do not match");
-        return;
-      }
+      if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
+      if (password !== confirmPassword) { setError("Passwords do not match"); return; }
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Invalid email address"); return; }
     }
 
     setSubmitting(true);
     const result = isRegister
-      ? await register(username.trim(), password)
+      ? await register(username.trim(), password, email || undefined)
       : await login(username.trim(), password);
     setSubmitting(false);
 
-    if (result.error) {
-      setError(result.error);
-    } else {
-      navigate("/");
-    }
+    if (result.error) { setError(result.error); } else { navigate("/"); }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <Link
-          to="/"
-          className="flex items-center gap-2 text-purple-400 hover:text-purple-300 mb-6"
-        >
-          <ArrowLeft size={20} />
-          Back to Home
+        <Link to="/" className="flex items-center gap-2 text-purple-400 hover:text-purple-300 mb-6">
+          <ArrowLeft size={20} />Back to Home
         </Link>
 
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-8">
           <h1 className="text-3xl font-bold text-white mb-2">GameNexus</h1>
-          <p className="text-gray-400 mb-6">
-            {isRegister ? "Create your account" : "Sign in to your account"}
-          </p>
+          <p className="text-gray-400 mb-6">{isRegister ? "Create your account" : "Sign in to your account"}</p>
 
           <div className="flex mb-6 bg-gray-700 rounded-lg p-1">
             <button
-              onClick={() => { setIsRegister(false); setError(""); }}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-                !isRegister ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"
-              }`}
+              onClick={() => { setIsRegister(false); setError(""); setEmail(""); }}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${!isRegister ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"}`}
             >
               Sign In
             </button>
             <button
               onClick={() => { setIsRegister(true); setError(""); }}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-                isRegister ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"
-              }`}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${isRegister ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"}`}
             >
               Register
             </button>
@@ -88,9 +64,7 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Username
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Username</label>
               <input
                 type="text"
                 value={username}
@@ -104,9 +78,7 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Password
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
@@ -127,19 +99,36 @@ export default function Login() {
             </div>
 
             {isRegister && (
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Confirm Password
-                </label>
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
-                  placeholder="Repeat your password"
-                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
-                  autoComplete="new-password"
-                />
-              </div>
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Confirm Password</label>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
+                    placeholder="Repeat your password"
+                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Email <span className="text-gray-500 font-normal">(optional)</span>
+                  </label>
+                  <div className="relative">
+                    <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                      placeholder="you@example.com"
+                      className="w-full pl-9 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
+                      autoComplete="email"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Used for account recovery only. Never shown publicly.</p>
+                </div>
+              </>
             )}
 
             {error && <p className="text-red-400 text-sm">{error}</p>}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Save, Crown, Code2, Shield, Zap, User } from "lucide-react";
+import { ArrowLeft, Save, Crown, Code2, Shield, Zap, User, Mail, MessageSquare } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
 const AVATAR_COLORS = [
@@ -9,11 +9,13 @@ const AVATAR_COLORS = [
 ];
 
 export default function AccountSettings() {
-  const { username, rank, isPremium, refreshAuth } = useAuth();
+  const { username, rank, isPremium, refreshAuth, unreadDMs } = useAuth();
   const [bio, setBio] = useState("");
   const [avatarColor, setAvatarColor] = useState("#818cf8");
+  const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [emailError, setEmailError] = useState("");
 
   useEffect(() => {
     fetch("/api/settings")
@@ -22,18 +24,24 @@ export default function AccountSettings() {
         if (!d) return;
         setBio(d.bio || "");
         setAvatarColor(d.avatarColor || "#818cf8");
+        setEmail(d.email || "");
       })
       .catch(() => {});
   }, []);
 
   const handleSave = async () => {
+    setEmailError("");
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailError("Invalid email address");
+      return;
+    }
     setSaving(true);
     setSuccess(false);
     try {
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bio, avatarColor }),
+        body: JSON.stringify({ bio, avatarColor, email }),
       });
       if (res.ok) {
         setSuccess(true);
@@ -59,6 +67,12 @@ export default function AccountSettings() {
             <ArrowLeft size={20} />
           </Link>
           <h1 className="text-white font-bold text-xl">Account Settings</h1>
+          {unreadDMs > 0 && (
+            <Link to="/messages" className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/20 border border-purple-500/40 text-purple-300 rounded-lg text-sm hover:bg-purple-600/30 transition-colors">
+              <MessageSquare size={14} />
+              {unreadDMs} new DM{unreadDMs !== 1 ? "s" : ""}
+            </Link>
+          )}
         </div>
       </header>
 
@@ -78,14 +92,12 @@ export default function AccountSettings() {
                 <span className="text-white font-bold text-lg">{username}</span>
                 {rankBadge && (
                   <span className={`flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-bold ${rankBadge.bg} ${rankBadge.text}`}>
-                    <rankBadge.Icon size={11} />
-                    {rankBadge.label}
+                    <rankBadge.Icon size={11} />{rankBadge.label}
                   </span>
                 )}
                 {isPremium && (
                   <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold">
-                    <Zap size={10} />
-                    Premium
+                    <Zap size={10} />Premium
                   </span>
                 )}
               </div>
@@ -130,7 +142,25 @@ export default function AccountSettings() {
           <p className="text-gray-500 text-xs text-right">{bio.length}/300</p>
         </div>
 
-        {/* Premium status */}
+        {/* Email */}
+        <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 space-y-3">
+          <h2 className="text-white font-semibold flex items-center gap-2">
+            <Mail size={16} className="text-purple-400" />
+            Email Address
+            <span className="text-gray-500 text-xs font-normal">(private — never shown publicly)</span>
+          </h2>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setEmailError(""); }}
+            placeholder="you@example.com"
+            className="w-full bg-gray-700 text-white text-sm px-4 py-3 rounded-xl focus:outline-none focus:ring-1 focus:ring-purple-500 placeholder-gray-500"
+          />
+          {emailError && <p className="text-red-400 text-sm">{emailError}</p>}
+          <p className="text-gray-500 text-xs">Optional. Used for account recovery only.</p>
+        </div>
+
+        {/* Account status */}
         <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 space-y-2">
           <h2 className="text-white font-semibold">Account Status</h2>
           <div className="flex items-center justify-between py-2">
@@ -140,19 +170,23 @@ export default function AccountSettings() {
             </span>
           </div>
           {!isPremium && (
-            <p className="text-gray-500 text-xs">
-              Publish your first public game to unlock Premium — 50 AI requests/day, premium badge, and more.
-            </p>
+            <p className="text-gray-500 text-xs">Publish your first public game to unlock Premium — 50 AI requests/day, premium badge, and more.</p>
           )}
           {rankBadge && (
             <div className="flex items-center justify-between py-2 border-t border-gray-700">
               <span className="text-gray-400 text-sm">Rank</span>
               <span className={`flex items-center gap-1.5 text-sm font-bold ${rankBadge.text}`}>
-                <rankBadge.Icon size={14} />
-                {rankBadge.label}
+                <rankBadge.Icon size={14} />{rankBadge.label}
               </span>
             </div>
           )}
+          <div className="flex items-center justify-between py-2 border-t border-gray-700">
+            <span className="text-gray-400 text-sm">Messages</span>
+            <Link to="/messages" className="flex items-center gap-1.5 text-sm text-purple-400 hover:text-purple-300 transition-colors">
+              <MessageSquare size={14} />
+              {unreadDMs > 0 ? `${unreadDMs} unread` : "View inbox"}
+            </Link>
+          </div>
         </div>
 
         {/* Save */}
