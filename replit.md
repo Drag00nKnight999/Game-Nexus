@@ -68,10 +68,9 @@ Benefits: 50 AI requests/day (vs 5 for free), Premium badge on profile and home 
 | GET | `/api/ai/status` | AI usage status |
 | GET | `/api/profile/:username` | Public profile data |
 
-## Developer Account
+## Owner Account
 
 - Username: `Drag00nKnightOFFICIAL`
-- Password: `bloxdhop2025`
 - Rank: `owner`
 - Join date: fixed at 2025-01-01
 
@@ -79,4 +78,4 @@ Benefits: 50 AI requests/day (vs 5 for free), Premium badge on profile and home 
 
 - Storage is in-memory — data resets on server restart. For persistence, migrate to PostgreSQL.
 - OpenAI integration requires `OPENAI_API_KEY` env secret. Falls back to template responses without it.
-- Admin password for admin panel login is set via `ADMIN_PASSWORD` env var (default: `admin123`).
+- Admin password for admin panel login is set via `ADMIN_PASSWORD` env var (no default — must be set).

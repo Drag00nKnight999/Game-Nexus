@@ -22,7 +22,7 @@ const upload = multer({
   limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB max
 });
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const sessions = new Map<string, { createdAt: number }>();
 
@@ -31,7 +31,7 @@ const USER_SESSION_TIMEOUT = 7 * 24 * 60 * 60 * 1000; // 7 days
 const userSessions = new Map<string, { userId: number; username: string; createdAt: number }>();
 
 function generateUserSessionId(): string {
-  return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+  return require("crypto").randomBytes(32).toString("hex");
 }
 
 function getUserSession(req: Request): { userId: number; username: string } | null {
@@ -59,7 +59,7 @@ const MAX_REQUESTS_PER_MINUTE = 10;
 const auditLog: any[] = [];
 
 function generateSessionId(): string {
-  return Math.random().toString(36).substring(7);
+  return require("crypto").randomBytes(32).toString("hex");
 }
 
 function isAuthenticated(req: Request): boolean {
@@ -223,7 +223,7 @@ export async function registerRoutes(
   app.post("/api/admin/login", (req: Request, res: Response) => {
     const { password } = req.body;
 
-    if (password === ADMIN_PASSWORD) {
+    if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) {
       const sessionId = generateSessionId();
       sessions.set(sessionId, { createdAt: Date.now() });
       // Set cookie without expiration to avoid session loss on browser close
