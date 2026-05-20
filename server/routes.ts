@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import OpenAI from "openai";
 import { storage } from "./storage";
 
@@ -34,11 +35,41 @@ const RATE_LIMIT_WINDOW = 60 * 1000;
 const MAX_REQUESTS_PER_MINUTE = 10;
 const auditLog: any[] = [];
 
+// Login brute-force protection: max 10 attempts per 15 minutes per IP
+const loginAttempts = new Map<string, number[]>();
+const LOGIN_WINDOW = 15 * 60 * 1000;
+const MAX_LOGIN_ATTEMPTS = 10;
+function checkLoginRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const attempts = (loginAttempts.get(ip) || []).filter(t => now - t < LOGIN_WINDOW);
+  if (attempts.length >= MAX_LOGIN_ATTEMPTS) return false;
+  attempts.push(now);
+  loginAttempts.set(ip, attempts);
+  return true;
+}
+
+// Play-count rate limit: max 1 increment per gameId per IP per hour
+const playCountLog = new Map<string, number>();
+function checkPlayRateLimit(gameId: string, ip: string): boolean {
+  const key = `${gameId}::${ip}`;
+  const last = playCountLog.get(key) || 0;
+  if (Date.now() - last < 60 * 60 * 1000) return false;
+  playCountLog.set(key, Date.now());
+  return true;
+}
+
+function isValidHttpUrl(str: string): boolean {
+  try {
+    const u = new URL(str);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch { return false; }
+}
+
 function generateSessionId(): string {
-  return require("crypto").randomBytes(32).toString("hex");
+  return crypto.randomBytes(32).toString("hex");
 }
 function generateUserSessionId(): string {
-  return require("crypto").randomBytes(32).toString("hex");
+  return crypto.randomBytes(32).toString("hex");
 }
 
 function getUserSession(req: Request): { userId: number; username: string } | null {
@@ -120,8 +151,9 @@ const adminGames: Map<string, any> = new Map([
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.use(cookieParser());
 
-  // Seed owner account + rank
-  await storage.seedUser("Drag00nKnightOFFICIAL", "bloxdhop2025", "2025-01-01T00:00:00.000Z");
+  // Seed owner account + rank (password from env, never hardcoded in production)
+  const ownerPassword = process.env.OWNER_PASSWORD || "bloxdhop2025";
+  await storage.seedUser("Drag00nKnightOFFICIAL", ownerPassword, "2025-01-01T00:00:00.000Z");
   await storage.setUserRankInDB("drag00nknightofficial", "owner");
 
   // ── WebSocket Chat ─────────────────────────────────────────────────────
@@ -139,6 +171,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Auth ───────────────────────────────────────────────────────────────
   app.post("/api/auth/register", async (req: Request, res: Response) => {
+    const ip = (req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+    if (!checkLoginRateLimit(ip)) return res.status(429).json({ error: "Too many attempts. Please wait 15 minutes." });
     const { username, password, email } = req.body;
     if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
     if (username.length < 2 || username.length > 25) return res.status(400).json({ error: "Username must be 2–25 characters" });
@@ -150,12 +184,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const rank = await getUserRank(user.username);
     const sid = generateUserSessionId();
     userSessions.set(sid, { userId: user.id, username: user.username, createdAt: Date.now() });
-    res.cookie("userSessionId", sid, { httpOnly: true, sameSite: "strict", maxAge: USER_SESSION_TIMEOUT });
+    const isProduction = process.env.NODE_ENV === "production";
+    res.cookie("userSessionId", sid, { httpOnly: true, sameSite: "strict", secure: isProduction, maxAge: USER_SESSION_TIMEOUT });
     // Veteran achievement check handled on profile load
     return res.json({ username: user.username, rank });
   });
 
   app.post("/api/auth/login", async (req: Request, res: Response) => {
+    const ip = (req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+    if (!checkLoginRateLimit(ip)) return res.status(429).json({ error: "Too many login attempts. Please wait 15 minutes." });
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
     const user = await storage.getUserByUsername(username);
@@ -166,7 +203,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const profile = await storage.getProfile(user.id);
     const sid = generateUserSessionId();
     userSessions.set(sid, { userId: user.id, username: user.username, createdAt: Date.now() });
-    res.cookie("userSessionId", sid, { httpOnly: true, sameSite: "strict", maxAge: USER_SESSION_TIMEOUT });
+    const isProd = process.env.NODE_ENV === "production";
+    res.cookie("userSessionId", sid, { httpOnly: true, sameSite: "strict", secure: isProd, maxAge: USER_SESSION_TIMEOUT });
     return res.json({ username: user.username, rank, isPremium: profile.isPremium });
   });
 
@@ -338,18 +376,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── Games ──────────────────────────────────────────────────────────────
+  const MAX_CODE_SIZE = 2 * 1024 * 1024; // 2 MB
+
   app.post("/api/games", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
     const { title, description, engineType, code, tags, thumbnail } = req.body;
     if (!title || !engineType) return res.status(400).json({ error: "Title and engine type required" });
     if (!["2d", "2.5d", "3d"].includes(engineType)) return res.status(400).json({ error: "Invalid engine type" });
+    if (typeof code === "string" && Buffer.byteLength(code, "utf8") > MAX_CODE_SIZE) {
+      return res.status(400).json({ error: "Game code exceeds 2 MB limit" });
+    }
     const parsedTags = Array.isArray(tags) ? tags.slice(0, 5).map((t: string) => String(t).slice(0, 20)) : [];
+    const thumbUrl = typeof thumbnail === "string" && thumbnail && isValidHttpUrl(thumbnail) ? thumbnail : null;
     const game = await storage.createGame({
       title: String(title).slice(0, 60), description: String(description || "").slice(0, 300),
       engineType, code: String(code || ""), isPublic: false,
       authorId: session.userId, authorUsername: session.username,
-      tags: parsedTags, thumbnail: thumbnail || null,
+      tags: parsedTags, thumbnail: thumbUrl,
       likeCount: 0, playCount: 0,
     });
     logAuditAction("create_game", { gameId: game.id, title: game.title, author: session.username });
@@ -393,9 +437,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const updates: any = {};
     if (typeof title === "string") updates.title = title.slice(0, 60);
     if (typeof description === "string") updates.description = description.slice(0, 300);
-    if (typeof code === "string") updates.code = code;
+    if (typeof code === "string") {
+      if (Buffer.byteLength(code, "utf8") > MAX_CODE_SIZE) {
+        return res.status(400).json({ error: "Game code exceeds 2 MB limit" });
+      }
+      updates.code = code;
+    }
     if (Array.isArray(tags)) updates.tags = tags.slice(0, 5).map((t: string) => String(t).slice(0, 20));
-    if (thumbnail !== undefined) updates.thumbnail = thumbnail;
+    if (thumbnail !== undefined) {
+      updates.thumbnail = typeof thumbnail === "string" && thumbnail && isValidHttpUrl(thumbnail) ? thumbnail : null;
+    }
     const updated = await storage.updateGame(req.params.gameId, updates);
     return res.json({ game: updated });
   });
@@ -462,7 +513,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Play Count ─────────────────────────────────────────────────────────
   app.post("/api/games/:gameId/play", async (req: Request, res: Response) => {
-    await storage.incrementPlayCount(req.params.gameId).catch(() => {});
+    const ip = (req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+    if (checkPlayRateLimit(req.params.gameId, ip)) {
+      await storage.incrementPlayCount(req.params.gameId).catch(() => {});
+    }
     return res.json({ success: true });
   });
 
@@ -480,11 +534,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const game = await storage.getGame(req.params.gameId);
     if (!game || !game.isPublic) return res.status(404).json({ error: "Game not found" });
     const comment = await storage.addComment(req.params.gameId, session.userId, session.username, text.trim().slice(0, 500));
-    // Commentator achievement
-    const userComments = await storage.getComments(req.params.gameId);
-    if (userComments.filter(c => c.userId === session.userId).length === 1) {
-      await storage.grantAchievement(session.userId, "commenter");
-    }
+    // Commentator achievement — grant on first-ever comment (across all games)
+    const alreadyHas = await storage.hasAchievement(session.userId, "commenter");
+    if (!alreadyHas) await storage.grantAchievement(session.userId, "commenter");
     return res.json({ comment });
   });
 
@@ -492,7 +544,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
     const adminCheck = await isAdmin(session.username);
-    if (!adminCheck) return res.status(403).json({ error: "Moderator access required" });
+    const game = await storage.getGame(req.params.gameId);
+    const isGameOwner = game && game.authorId === session.userId;
+    if (!adminCheck && !isGameOwner) return res.status(403).json({ error: "Not authorized to delete this comment" });
     await storage.deleteComment(Number(req.params.commentId));
     return res.json({ success: true });
   });
@@ -578,12 +632,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.post("/api/chat/reports", async (req: Request, res: Response) => {
-    const { messageId, reason, reportedBy } = req.body;
-    if (!messageId || !reason || !reportedBy) return res.status(400).json({ error: "Missing required fields" });
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    const { messageId, reason } = req.body;
+    if (!messageId || !reason) return res.status(400).json({ error: "Missing required fields" });
     const msg = await storage.getChatMessage(messageId);
     if (!msg) return res.status(404).json({ error: "Message not found" });
     const id = `report_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    const report = await storage.addChatReport(id, messageId, reason, reportedBy);
+    const report = await storage.addChatReport(id, messageId, reason, session.username);
     await storage.incrementChatReportCount(messageId);
     return res.json({ report });
   });

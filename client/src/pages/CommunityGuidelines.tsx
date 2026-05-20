@@ -60,6 +60,11 @@ export default function CommunityGuidelines() {
         </section>
 
         <section className="space-y-3">
+          <h2 className="text-xl font-semibold text-white">⚙️ No Malicious Game Code</h2>
+          <p>Games published on GameNexus must not contain code that mines cryptocurrency, performs unauthorized network requests, attempts to access user data outside the game, or is otherwise designed to harm, exploit, or deceive players. Violations will result in immediate game removal and account ban.</p>
+        </section>
+
+        <section className="space-y-3">
           <h2 className="text-xl font-semibold text-white">🐛 Report, Don't Retaliate</h2>
           <p>If you see someone breaking the rules, use the report button on their message. Do not engage in arguments or retaliate — let the moderation team handle it. False or malicious reports are also a violation of these guidelines.</p>
         </section>
