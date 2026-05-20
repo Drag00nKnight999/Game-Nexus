@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { injectGameCSP } from "../lib/gameCSP";
 import {
   ArrowLeft, Save, Globe, Lock, Play, Bot, Send, X, Code2, Layers, Box,
   Zap, Share2, History, Clock, RotateCcw, Tag, CheckCircle2
@@ -527,7 +528,7 @@ export default function GameEditor() {
               <span className="text-gray-400 text-xs font-medium">Preview</span>
               <button onClick={() => setShowPreview(false)} className="text-gray-500 hover:text-white"><X size={16} /></button>
             </div>
-            <iframe key={previewKey} className="flex-1 w-full" srcDoc={code} sandbox="allow-scripts" title="Game Preview" />
+            <iframe key={previewKey} className="flex-1 w-full" srcDoc={injectGameCSP(code)} sandbox="allow-scripts" title="Game Preview" />
           </div>
         )}
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Globe, Crown, Code2, Shield, Zap, Layers, Box, Heart, Eye, Flag, Send, Trash2, X, Tag } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { injectGameCSP } from "../lib/gameCSP";
 
 interface UserGame {
   id: string;
@@ -175,7 +176,7 @@ export default function SharedGame() {
             Exit Fullscreen
           </button>
         </div>
-        <iframe className="flex-1 w-full" srcDoc={game.code} sandbox="allow-scripts" title={game.title} />
+        <iframe className="flex-1 w-full" srcDoc={injectGameCSP(game.code)} sandbox="allow-scripts" title={game.title} />
       </div>
     );
   }
@@ -300,7 +301,7 @@ export default function SharedGame() {
 
         {/* Game iframe */}
         <div className="bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden" style={{ height: "70vh" }}>
-          <iframe className="w-full h-full" srcDoc={game.code} sandbox="allow-scripts" title={game.title} />
+          <iframe className="w-full h-full" srcDoc={injectGameCSP(game.code)} sandbox="allow-scripts" title={game.title} />
         </div>
 
         <p className="text-gray-600 text-xs text-center">Published {new Date(game.updatedAt).toLocaleDateString()}</p>
