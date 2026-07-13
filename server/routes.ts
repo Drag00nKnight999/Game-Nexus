@@ -58,6 +58,37 @@ function checkPlayRateLimit(gameId: string, ip: string): boolean {
   return true;
 }
 
+// DM rate limit: max 20 messages per user per minute
+const dmRateLimit = new Map<number, number[]>();
+function checkDMRateLimit(userId: number): boolean {
+  const now = Date.now();
+  const times = (dmRateLimit.get(userId) || []).filter(t => now - t < 60 * 1000);
+  if (times.length >= 20) return false;
+  times.push(now);
+  dmRateLimit.set(userId, times);
+  return true;
+}
+
+// Periodic cleanup of all in-memory rate-limit Maps to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, times] of loginAttempts) {
+    if (times.every(t => now - t > LOGIN_WINDOW)) loginAttempts.delete(k);
+  }
+  for (const [k, ts] of adminRateLimit) {
+    if (ts.every(t => now - t > RATE_LIMIT_WINDOW)) adminRateLimit.delete(k);
+  }
+  for (const [k, ts] of playCountLog) {
+    if (now - ts > 2 * 60 * 60 * 1000) playCountLog.delete(k);
+  }
+  for (const [k, times] of dmRateLimit) {
+    if (times.every(t => now - t > 60 * 1000)) dmRateLimit.delete(k);
+  }
+  for (const [sid, s] of userSessions) {
+    if (now - s.createdAt > USER_SESSION_TIMEOUT) userSessions.delete(sid);
+  }
+}, 30 * 60 * 1000); // run every 30 minutes
+
 function isValidHttpUrl(str: string): boolean {
   try {
     const u = new URL(str);
@@ -176,6 +207,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const { username, password, email } = req.body;
     if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
     if (username.length < 2 || username.length > 25) return res.status(400).json({ error: "Username must be 2–25 characters" });
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) return res.status(400).json({ error: "Username may only contain letters, numbers, and underscores" });
     if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Invalid email address" });
     const existing = await storage.getUserByUsername(username);
@@ -264,7 +296,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json({
       username: user.username, rank, joinedAt, bio: profile.bio, avatarColor: profile.avatarColor,
       isPremium: profile.isPremium, publicGameCount: publicGames.filter(g => g.isPublic).length,
-      publicGames: publicGames.filter(g => g.isPublic).slice(0, 12),
+      publicGames: publicGames.filter(g => g.isPublic).slice(0, 12).map(({ code: _code, ...g }) => g),
       achievements: achievements.map(a => ({ ...a, ...(ACHIEVEMENT_DEFS[a.type] || { label: a.type, description: "", icon: "🏆" }) })),
       followerCount, followingCount,
     });
@@ -302,6 +334,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get("/api/user/banned/:username", async (req: Request, res: Response) => {
+    const session = getUserSession(req);
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
     const isBanned = await storage.isBanned(req.params.username);
     return res.json({ username: req.params.username, isBanned });
   });
@@ -359,6 +393,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/messages/:username", async (req: Request, res: Response) => {
     const session = getUserSession(req);
     if (!session) return res.status(401).json({ error: "Not authenticated" });
+    if (!checkDMRateLimit(session.userId)) return res.status(429).json({ error: "Sending too fast. Please slow down." });
     const { text } = req.body;
     if (!text || !text.trim()) return res.status(400).json({ error: "Message text required" });
     const other = await storage.getUserByUsername(req.params.username);
@@ -404,7 +439,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get("/api/games/public", async (_req: Request, res: Response) => {
-    const games = await storage.getPublicGames();
+    const games = (await storage.getPublicGames()).map(({ code: _code, ...g }) => g);
     return res.json({ games });
   });
 
@@ -603,6 +638,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!session) return res.status(401).json({ error: "You must be logged in to send messages" });
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: "Message text required" });
+    if (text.length > 500) return res.status(400).json({ error: "Message must be 500 characters or fewer" });
     if (await storage.isBanned(session.username)) return res.status(403).json({ error: "User is banned" });
     const flagged = containsSwearWords(text);
     const rank = await getUserRank(session.username);

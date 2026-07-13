@@ -229,11 +229,14 @@ export class PgStorage {
   // ── Likes ──────────────────────────────────────────────────────────────
 
   async likeGame(userId: number, gameId: string): Promise<void> {
-    await pool.query(
+    // Only increment the counter when the like row is actually inserted (prevents race-condition double-increment)
+    const { rowCount } = await pool.query(
       "INSERT INTO game_likes (user_id, game_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
       [userId, gameId]
     );
-    await pool.query("UPDATE user_games SET like_count = like_count + 1 WHERE id = $1", [gameId]);
+    if ((rowCount ?? 0) > 0) {
+      await pool.query("UPDATE user_games SET like_count = like_count + 1 WHERE id = $1", [gameId]);
+    }
   }
 
   async unlikeGame(userId: number, gameId: string): Promise<void> {
