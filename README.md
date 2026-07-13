@@ -2,7 +2,8 @@
 
 [![Made with Replit](https://replit.com/badge?caption=Made%20with%20Replit)](https://replit.com)
 
-
+> [!IMPORTANT]  
+> GameNexus cannot be run in a static website hosting service like Github Pages. Use Replit since the website was made in Replit.
 
 ## Overview
 GameNexus is a gaming website that hosts multiple browser games. Users can browse a game library and play different games directly in their browser.
