@@ -38,3 +38,7 @@ waitForPort = 5000
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 120000
+
+[userenv]
+
+[userenv.shared]
